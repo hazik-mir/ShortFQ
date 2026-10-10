@@ -19,6 +19,7 @@ let toastTimer;
 let visibleMilestones = 8;
 let visibleCertificates = 24;
 let firebaseInitPromise = Promise.resolve();
+let firebaseInitStarted = false;
 const firebaseSdkVersion = '13.0.0';
 const firebaseModule = (name) => import(`https://www.gstatic.com/firebasejs/${firebaseSdkVersion}/firebase-${name}.js`);
 const profileCacheKey = 'shortfq-profile-snapshot';
@@ -88,8 +89,8 @@ function firebaseReady() {
 }
 
 async function initFirebase() {
-  if (!firebaseReady()) return;
-  if (!navigator.onLine) return;
+  if (!firebaseReady() || !navigator.onLine || firebaseInitStarted) return;
+  firebaseInitStarted = true;
   const [appSdk, authSdk, firestoreSdk, functionsSdk] = await Promise.all([
     firebaseModule('app'),
     firebaseModule('auth'),
@@ -306,28 +307,28 @@ async function drawCertificate(target) {
   const canvas = document.createElement('canvas');
   canvas.width = 1200; canvas.height = 820;
   const ctx = canvas.getContext('2d');
-  const bg = ctx.createLinearGradient(0, 0, 1200, 820); bg.addColorStop(0, '#103723'); bg.addColorStop(.55, '#183f2b'); bg.addColorStop(1, '#0b271b'); ctx.fillStyle = bg; ctx.fillRect(0,0,1200,820);
-  ctx.strokeStyle = '#e1ce82'; ctx.lineWidth = 2; ctx.strokeRect(29,29,1142,762); ctx.lineWidth = 1; ctx.strokeRect(42,42,1116,736);
-  const radial = ctx.createRadialGradient(600,200,20,600,200,500); radial.addColorStop(0,'#8fe5a41c'); radial.addColorStop(1,'#8fe5a400'); ctx.fillStyle=radial; ctx.fillRect(0,0,1200,500);
-  ctx.textAlign='center'; ctx.fillStyle='#e4d289'; ctx.font='36px serif'; ctx.fillText('✳',600,133);
-  ctx.fillStyle='#b6cda9'; ctx.font='600 17px sans-serif'; ctx.letterSpacing='7px'; ctx.fillText('SHORTFQ  ·  CREATOR MILESTONE',600,178);
-  ctx.fillStyle='#e9eedb'; ctx.font='500 23px sans-serif'; ctx.letterSpacing='5px'; ctx.fillText('MILESTONE CERTIFICATE',600,269);
-  ctx.fillStyle='#8fe5a4'; ctx.font='700 68px sans-serif'; ctx.letterSpacing='-2px'; ctx.fillText(`${fmt(target)} Subscriber Count`,600,374);
+  const bg = ctx.createLinearGradient(0, 0, 1200, 820); bg.addColorStop(0, '#080808'); bg.addColorStop(.55, '#202020'); bg.addColorStop(1, '#050505'); ctx.fillStyle = bg; ctx.fillRect(0,0,1200,820);
+  ctx.strokeStyle = '#eeeeee'; ctx.lineWidth = 2; ctx.strokeRect(29,29,1142,762); ctx.lineWidth = 1; ctx.strokeRect(42,42,1116,736);
+  const radial = ctx.createRadialGradient(600,200,20,600,200,500); radial.addColorStop(0,'#ffffff18'); radial.addColorStop(1,'#ffffff00'); ctx.fillStyle=radial; ctx.fillRect(0,0,1200,500);
+  ctx.textAlign='center'; ctx.fillStyle='#ffffff'; ctx.font='36px "Clash Regular"'; ctx.fillText('✳',600,133);
+  ctx.fillStyle='#cccccc'; ctx.font='600 17px "Clash Regular"'; ctx.letterSpacing='7px'; ctx.fillText('SHORTFQ  ·  CREATOR MILESTONE',600,178);
+  ctx.fillStyle='#ffffff'; ctx.font='500 23px "Clash Regular"'; ctx.letterSpacing='5px'; ctx.fillText('MILESTONE CERTIFICATE',600,269);
+  ctx.fillStyle='#ffffff'; ctx.font='700 68px "Clash Regular"'; ctx.letterSpacing='-2px'; ctx.fillText(`${fmt(target)} Subscriber Count`,600,374);
   const description = `${fmt(target)} subscriber count milestone completed by ShortFQ to`;
-  ctx.fillStyle='#a9c2ac'; ctx.font=`400 ${Math.min(19, Math.floor(930 / description.length))}px sans-serif`; ctx.letterSpacing='0px'; ctx.fillText(description,600,445);
+  ctx.fillStyle='#c5c5c5'; ctx.font=`400 ${Math.min(19, Math.floor(930 / description.length))}px "Clash Regular"`; ctx.letterSpacing='0px'; ctx.fillText(description,600,445);
   try {
     const portrait = new Image();
     portrait.crossOrigin = 'anonymous';
     portrait.src = channel?.thumbnail || '/avatar-placeholder.svg';
     await new Promise((resolve, reject) => { portrait.onload = resolve; portrait.onerror = reject; });
     ctx.save(); ctx.beginPath(); ctx.arc(600,510,39,0,Math.PI*2); ctx.clip(); ctx.drawImage(portrait,561,471,78,78); ctx.restore();
-    ctx.beginPath(); ctx.arc(600,510,40,0,Math.PI*2); ctx.strokeStyle='#9de4a8'; ctx.lineWidth=2; ctx.stroke();
+    ctx.beginPath(); ctx.arc(600,510,40,0,Math.PI*2); ctx.strokeStyle='#ffffff'; ctx.lineWidth=2; ctx.stroke();
   } catch { /* The certificate remains usable if a channel avatar blocks canvas access. */ }
   const channelName = channel?.title || 'Your channel';
-  ctx.fillStyle='#edf0d8'; ctx.font=`700 ${Math.min(36, Math.floor(700 / channelName.length))}px sans-serif`; ctx.letterSpacing='0px'; ctx.fillText(channelName,600,584);
-  ctx.strokeStyle='#d8cc8a80';ctx.beginPath();ctx.moveTo(390,624);ctx.lineTo(810,624);ctx.stroke();
-  ctx.fillStyle='#bad1b6';ctx.font='500 16px sans-serif';ctx.fillText(monthYear.format(new Date()),600,661);
-  ctx.fillStyle='#e0ebd6';ctx.font='700 23px sans-serif';ctx.fillText('▶  SHORTFQ',600,730);
+  ctx.fillStyle='#ffffff'; ctx.font=`700 ${Math.min(36, Math.floor(700 / channelName.length))}px "Clash Regular"`; ctx.letterSpacing='0px'; ctx.fillText(channelName,600,584);
+  ctx.strokeStyle='#ffffff80';ctx.beginPath();ctx.moveTo(390,624);ctx.lineTo(810,624);ctx.stroke();
+  ctx.fillStyle='#cccccc';ctx.font='500 16px "Clash Regular"';ctx.fillText(monthYear.format(new Date()),600,661);
+  ctx.fillStyle='#ffffff';ctx.font='700 23px "Clash Regular"';ctx.fillText('▶  SHORTFQ',600,730);
   return canvas;
 }
 
@@ -354,7 +355,7 @@ function navigate(viewName) {
 }
 
 document.querySelectorAll('[data-view]').forEach((link) => link.addEventListener('click', (event) => { event.preventDefault(); const view = link.dataset.view; navigate(view); history.replaceState(null, '', `#${view === 'home' ? 'home' : view}`); }));
-window.addEventListener('online', () => { setConnectionState(); if (firebaseReady() && !auth) { firebaseInitPromise = initFirebase(); firebaseInitPromise.catch((error) => console.info('Firebase is still unavailable:', error)); } });
+window.addEventListener('online', () => { setConnectionState(); if (firebaseReady() && !auth && !firebaseInitStarted) { firebaseInitPromise = initFirebase(); firebaseInitPromise.catch((error) => { firebaseInitStarted = false; console.info('Firebase is still unavailable:', error); }); } });
 window.addEventListener('offline', setConnectionState);
 $('#connect-button').addEventListener('click', signIn);
 $('#milestone-more').addEventListener('click', () => { visibleMilestones += 8; renderMilestones(); });
@@ -365,7 +366,15 @@ $('#account-button').addEventListener('click', async () => {
     const { signOut } = await firebaseModule('auth');
     await signOut(auth);
     localStorage.removeItem(profileCacheKey);
-    channel = null; subscriberTotal = 0; navigate('home'); showToast('You’re signed out. See you again soon.');
+    channel = null; subscriberTotal = 0;
+    $('#profile-name').textContent = 'Not signed in';
+    $('#profile-email').textContent = 'Connect your Google account to see your profile.';
+    $('#profile-avatar').src = '/avatar-placeholder.svg';
+    $('#profile-channel').textContent = 'Not connected';
+    $('#profile-channel-id').textContent = 'Connect your channel to get started.';
+    $('#profile-subscribers').textContent = '—';
+    $('#profile-views').textContent = '—';
+    navigate('home'); showToast('You’re signed out. See you again soon.');
   }
 });
 $('#refresh-button').addEventListener('click', () => refreshStats(true));
@@ -379,6 +388,7 @@ paintCachedProfile(readCachedProfile());
 navigator.serviceWorker?.register('/sw.js').catch((error) => console.info('Offline shell registration unavailable:', error));
 firebaseInitPromise = initFirebase();
 firebaseInitPromise.catch((error) => {
+  firebaseInitStarted = false;
   console.error('Firebase initialization failed:', error);
   showToast('Firebase is unavailable right now. The page is ready; try connecting again in a moment.');
 });
