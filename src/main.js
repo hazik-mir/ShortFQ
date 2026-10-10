@@ -214,7 +214,7 @@ async function signIn() {
   setConnectBusy(true, 'Opening Google sign-in…');
   try {
     if (!auth) {
-      firebaseInitPromise = initFirebase();
+      if (!firebaseInitStarted) firebaseInitPromise = initFirebase();
       try { await firebaseInitPromise; }
       catch (error) { firebaseInitStarted = false; throw error; }
     }
