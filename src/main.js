@@ -47,6 +47,9 @@ async function initFirebase() {
     firebaseModule('functions')
   ]);
   const firebaseApp = appSdk.initializeApp(firebaseConfig);
+  firebaseModule('analytics').then(async (analyticsSdk) => {
+    if (await analyticsSdk.isSupported()) analyticsSdk.getAnalytics(firebaseApp);
+  }).catch((error) => console.info('Firebase Analytics is unavailable in this browser:', error));
   auth = authSdk.getAuth(firebaseApp);
   await authSdk.setPersistence(auth, authSdk.browserLocalPersistence);
   db = firestoreSdk.getFirestore(firebaseApp);
