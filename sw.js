@@ -1,13 +1,15 @@
-const CACHE_NAME = 'shortfq-shell-v3';
+const CACHE_NAME = 'shortfq-shell-v4';
 const SHELL_FILES = [
   '/',
   '/index.html',
-  '/styles.css?v=offline-20261010',
+  '/styles.css?v=offline-font-20261010',
   '/src/main.js?v=offline-20261010',
   '/src/config.js',
   '/avatar-placeholder.svg',
   '/favicon.svg',
-  '/manifest.webmanifest'
+  '/manifest.webmanifest',
+  '/Clash_regular.ttf',
+  '/Clash_bold.ttf'
 ];
 
 self.addEventListener('install', (event) => {
