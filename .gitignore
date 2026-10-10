@@ -1,7 +1,2 @@
-.firebaserc
-.firebase/
 .env*
-firebase-debug.log
-firestore-debug.log
 .DS_Store
-

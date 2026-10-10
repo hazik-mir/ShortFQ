@@ -1,25 +1,25 @@
 # ShortFQ
 
-ShortFQ is a monochrome YouTube creator dashboard with current channel statistics and subscriber milestone certificates. Google sign-in and live YouTube refreshes need an internet connection; the member profile and last channel snapshot are saved in this browser only.
+ShortFQ is a lightweight YouTube creator dashboard for channel statistics and subscriber milestone certificates. It is a static app with Google sign-in, a direct YouTube Data API v3 request, and a local browser profile cache.
 
-## Connect Firebase
+## Google sign-in and YouTube
 
-1. Create or select a Firebase project. Enable Google as an Authentication provider and add `localhost` plus `shortfq.hazik.in` to its authorized domains.
-2. The Firebase web app settings are in `src/config.js`. The Firebase web API key is a public client identifier; restrict it to the project's APIs and authorized domains.
-3. Google sign-in requests YouTube read-only permission, then the browser calls YouTube Data API v3 with the user's short-lived OAuth access token. No YouTube API key, Cloud Function, Firestore database, or Firebase Storage is required for this app flow.
-4. GitHub Pages serves the static web app. Firebase Hosting is optional. This setup does not require the Blaze plan for a Cloud Function.
+The Google OAuth web client ID is in `src/config.js`. It is a public identifier; the OAuth client secret must remain private and is not used by this browser app. The configured client allows `https://shortfq.hazik.in`. Add any development origin, such as `http://localhost:5173`, to the OAuth client's authorized JavaScript origins before using it there.
 
-Only the profile fields and the latest channel statistics are saved in browser `localStorage`. The OAuth access token stays in memory and is never saved to local storage. Clearing this browser's site data removes the saved profile; it does not sync across browsers or devices.
+Enable YouTube Data API v3 in the Google Cloud project associated with this OAuth client. On sign-in, ShortFQ requests `openid`, `email`, `profile`, and YouTube read-only access. It uses the short-lived access token in memory to fetch the signed-in user's channel title, image, subscriber count, and total views directly from Google's APIs. No YouTube API key or backend service is needed.
 
-## Domain and public hosting
+## Local data and privacy
 
-`CNAME` records `shortfq.hazik.in` for GitHub Pages. If you use Firebase Hosting, add `shortfq.hazik.in` in Firebase Hosting's custom-domain setup and publish the exact DNS records Firebase gives you. DNS changes must be made at the `hazik.in` DNS provider; this repository cannot create those records.
+The profile and latest channel snapshot are saved in this browser's `localStorage` for offline viewing. The Google access token is kept in memory and is not saved. Clearing site data removes the local profile. Data does not sync between browsers or devices.
+
+## Hosting and domain
+
+GitHub Pages serves the static app. The repository's `CNAME` file points to `shortfq.hazik.in`; DNS records must also point that hostname to GitHub Pages at the domain's DNS provider.
 
 ## Ads and certificate unlocks
 
-The supplied Adsterra popunder, social bar, native banner, and 160×300 banner placements are included as ordinary placements. Certificates are earned from channel milestones and do not depend on interacting with ads. Adsterra's publisher guidance prohibits incentivized traffic, so ad views are not used to gate certificates.
+The supplied Adsterra popunder, social bar, native banner, and 160×300 banner placements are included as ordinary placements. Certificates are earned from channel milestones and do not depend on ad interaction.
 
 ## License
 
 License reference supplied by the owner: <https://hazik-mir.github.io>. The published [HDPL Universal License](https://github.com/hazik-mir/license/blob/main/LICENSE) reserves commercial use for written permission. Confirm the terms for this ad-supported public project before launch.
-

@@ -1,9 +1,2 @@
-// Firebase's web config is a public identifier. Restrict authorized domains in Firebase Auth.
-export const firebaseConfig = {
-  apiKey: "AIzaSyCsfOn6kGYDkSirRy8nIiLtkZkAEUIoFm4",
-  authDomain: "shortfq-by-hazik.firebaseapp.com",
-  projectId: "shortfq-by-hazik",
-  appId: "1:999501793671:web:3933206144a1d43e806b22",
-  messagingSenderId: "999501793671"
-};
-
+// A Google OAuth client ID is a public browser identifier. Never put a client secret here.
+export const googleClientId = '953000652750-csnacf74db12pjun1m4j1sj6l9vrigmv.apps.googleusercontent.com';

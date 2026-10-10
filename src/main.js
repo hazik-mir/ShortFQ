@@ -1,4 +1,4 @@
-import { firebaseConfig } from './config.js';
+import { googleClientId } from './config.js';
 
 const $ = (selector) => document.querySelector(selector);
 const boot = $('#boot-screen');
@@ -8,7 +8,6 @@ const monthYear = new Intl.DateTimeFormat('en', { month: 'long', year: 'numeric'
 const today = new Intl.DateTimeFormat('en', { weekday: 'short', month: 'short', day: 'numeric' });
 $('#today-label').textContent = today.format(new Date());
 
-let auth = null;
 let currentUser = null;
 let channel = null;
 let youtubeAccessToken = null;
@@ -16,11 +15,12 @@ let subscriberTotal = 0;
 let toastTimer;
 let visibleMilestones = 8;
 let visibleCertificates = 24;
-let firebaseInitPromise = Promise.resolve();
-let firebaseInitStarted = false;
-const firebaseSdkVersion = '13.0.0';
-const firebaseModule = (name) => import(`https://www.gstatic.com/firebasejs/${firebaseSdkVersion}/firebase-${name}.js`);
 const profileCacheKey = 'shortfq-profile-snapshot';
+let googleOAuthClient = null;
+let googleOAuthPromise = null;
+let googleOAuthReady = false;
+let googleOAuthLoadFailed = false;
+let pendingOAuthRequest = null;
 
 function readCachedProfile(uid = null) {
   try {
@@ -45,6 +45,8 @@ function setConnectionState() {
 
 function paintCachedProfile(stored, offline = !navigator.onLine) {
   if (!stored) return;
+  currentUser = { uid: stored.uid, email: stored.email || '', displayName: stored.displayName || 'ShortFQ member', photoURL: stored.photoURL || '' };
+  paintAccount(currentUser);
   $('#profile-name').textContent = stored.displayName || 'ShortFQ member';
   $('#profile-email').textContent = stored.email || 'Google account';
   $('#profile-avatar').src = stored.photoURL || '/avatar-placeholder.svg';
@@ -53,7 +55,22 @@ function paintCachedProfile(stored, offline = !navigator.onLine) {
   $('#profile-subscribers').textContent = stored.hiddenSubscriberCount ? 'Hidden' : (stored.subscriberCount == null ? '—' : fmt(stored.subscriberCount));
   $('#profile-views').textContent = stored.viewCount == null ? '—' : fmt(stored.viewCount);
   $('#profile-cache-state').textContent = offline ? 'Offline copy' : 'Saved on this device';
-  if (!stored.channelId) return;
+  if (!stored.channelId) {
+    channel = null;
+    subscriberTotal = 0;
+    $('#channel-name').textContent = 'Channel name';
+    $('#channel-handle').textContent = 'Connect with Google';
+    $('#subscriber-count').textContent = '—';
+    $('#view-count').textContent = '—';
+    $('#visual-channel-name').textContent = 'Your channel';
+    $('#visual-subscribers').textContent = '—';
+    $('#visual-views').textContent = '—';
+    $('#reached-count').textContent = '0';
+    setConnectedPanels(false);
+    renderMilestones();
+    renderCertificates();
+    return;
+  }
   channel = { id: stored.channelId, title: stored.channelTitle || 'Your channel', thumbnail: stored.channelPhoto || '/avatar-placeholder.svg' };
   subscriberTotal = Number(stored.subscriberCount || 0);
   $('#channel-avatar').src = channel.thumbnail;
@@ -81,21 +98,20 @@ function showToast(message) {
 
 function setConnectBusy(busy, label = '') {
   const button = $('#connect-button');
-  button.disabled = busy;
+  button.disabled = busy || (!googleOAuthReady && !googleOAuthLoadFailed);
   button.classList.toggle('is-loading', busy);
-  $('#connect-button-label').textContent = busy ? label : (currentUser ? 'Connect YouTube' : 'Continue with Google');
+  $('#connect-button-label').textContent = busy ? label : (!googleOAuthReady && googleOAuthLoadFailed ? 'Retry Google sign-in' : currentUser ? 'Reconnect Google' : 'Continue with Google');
   $('#connect-status').textContent = busy ? label : (currentUser
-    ? `Signed in as ${currentUser.email || currentUser.displayName || 'your Google account'} · YouTube access is still needed.`
+    ? `Saved on this device for ${currentUser.email || currentUser.displayName || 'your Google account'} · reconnect Google to refresh.`
     : 'Your Google account and YouTube channel are not connected yet.');
 }
 
 function userFacingError(error) {
-  const code = String(error?.code || '').replace(/^firebase\//, '');
+  const code = String(error?.code || '');
   const message = String(error?.message || 'Please try again.');
-  if (code === 'auth/unauthorized-domain') return 'This website domain is not authorized in Firebase Authentication. Add shortfq.hazik.in to the Firebase project’s Authorized domains.';
-  if (code === 'auth/popup-blocked') return 'Your browser blocked the Google sign-in window. Allow popups for this site and try again.';
-  if (code === 'auth/popup-closed-by-user') return '';
-  if (code === 'auth/network-request-failed') return 'Google sign-in could not reach Firebase. Check your connection and try again.';
+  if (code === 'popup_closed' || code === 'access_denied') return 'Google sign-in was cancelled. Connect again and approve YouTube read-only access to continue.';
+  if (code === 'popup_failed_to_open') return 'Your browser blocked Google sign-in. Allow popups for this site and try again.';
+  if (/Could not load your Google account/i.test(message)) return message;
   if (/quotaExceeded|dailyLimitExceeded/i.test(message)) return 'YouTube’s daily API quota has been reached. Try again after it resets.';
   if (/accessNotConfigured/i.test(message)) return 'YouTube Data API v3 is not enabled for this Google project yet.';
   if (/insufficientPermissions/i.test(message)) return 'Google did not grant YouTube read-only access. Connect again and approve the requested permission.';
@@ -109,41 +125,109 @@ function showApp() {
   setTimeout(() => boot.remove(), 650);
 }
 
-function firebaseReady() {
-  return Boolean(firebaseConfig.apiKey && firebaseConfig.authDomain && firebaseConfig.projectId && firebaseConfig.appId);
+function loadGoogleIdentity() {
+  if (window.google?.accounts?.oauth2) return Promise.resolve(window.google.accounts.oauth2);
+  return new Promise((resolve, reject) => {
+    const script = document.createElement('script');
+    script.src = 'https://accounts.google.com/gsi/client';
+    script.async = true;
+    script.onload = () => window.google?.accounts?.oauth2
+      ? resolve(window.google.accounts.oauth2)
+      : reject(new Error('Google sign-in loaded without its OAuth API. Reload and try again.'));
+    script.onerror = () => reject(new Error('Google sign-in could not load. Check your connection and reload the page.'));
+    document.head.append(script);
+  });
 }
 
-async function initFirebase() {
-  if (!firebaseReady() || !navigator.onLine || firebaseInitStarted) return;
-  firebaseInitStarted = true;
-  const [appSdk, authSdk] = await Promise.all([
-    firebaseModule('app'),
-    firebaseModule('auth')
-  ]);
-  const firebaseApp = appSdk.initializeApp(firebaseConfig);
-  auth = authSdk.getAuth(firebaseApp);
-  await authSdk.setPersistence(auth, authSdk.browserLocalPersistence);
-  authSdk.onAuthStateChanged(auth, async (user) => {
-    currentUser = user;
-    if (user) {
-      $('#account-label').textContent = user.displayName?.split(' ')[0] || 'Member';
-      $('.account-avatar').innerHTML = user.photoURL ? `<img src="${escapeAttr(user.photoURL)}" alt="" />` : (user.displayName || 'M')[0].toUpperCase();
-      $('.account-avatar').classList.toggle('has-photo', Boolean(user.photoURL));
-      const cached = readCachedProfile(user.uid);
-      const member = { ...(cached || {}), uid: user.uid, email: user.email || '', displayName: user.displayName || '', photoURL: user.photoURL || '' };
-      cacheProfile(member);
-      paintCachedProfile(member, !navigator.onLine);
-      setConnectedPanels(Boolean(member.channelId));
-    } else {
-      $('#account-label').textContent = 'Your account';
-      $('.account-avatar').textContent = '?';
-      $('.account-avatar').classList.remove('has-photo');
-      const cached = readCachedProfile();
-      if (cached) paintCachedProfile(cached, !navigator.onLine);
-      setConnectedPanels(Boolean(cached?.channelId));
-      setConnectBusy(false);
+function handleOAuthTokenResponse(response) {
+  const pending = pendingOAuthRequest;
+  pendingOAuthRequest = null;
+  if (!pending) return;
+  if (response?.error) {
+    const error = new Error(response.error_description || `Google OAuth error: ${response.error}`);
+    error.code = response.error;
+    pending.reject(error);
+    return;
+  }
+  if (!response?.access_token) {
+    pending.reject(new Error('Google did not return an access token. Try signing in again.'));
+    return;
+  }
+  pending.resolve(response.access_token);
+}
+
+function handleOAuthPopupError(error) {
+  const pending = pendingOAuthRequest;
+  pendingOAuthRequest = null;
+  if (pending) {
+    const failure = new Error(error?.message || 'Google sign-in could not open. Check popup settings and try again.');
+    failure.code = error?.type || '';
+    pending.reject(failure);
+  }
+}
+
+function prepareGoogleOAuth() {
+  if (googleOAuthClient) return Promise.resolve(googleOAuthClient);
+  if (!googleOAuthPromise) {
+    googleOAuthPromise = loadGoogleIdentity().then((oauth) => {
+      googleOAuthClient = oauth.initTokenClient({
+        client_id: googleClientId,
+        scope: 'openid email profile https://www.googleapis.com/auth/youtube.readonly',
+        include_granted_scopes: true,
+        callback: handleOAuthTokenResponse,
+        error_callback: handleOAuthPopupError
+      });
+      googleOAuthReady = true;
+      googleOAuthLoadFailed = false;
+      return googleOAuthClient;
+    }).catch((error) => {
+      googleOAuthPromise = null;
+      googleOAuthLoadFailed = true;
+      throw error;
+    });
+  }
+  return googleOAuthPromise;
+}
+
+function requestGoogleAccessToken() {
+  return new Promise((resolve, reject) => {
+    if (!googleOAuthClient) {
+      reject(new Error('Google sign-in is not ready. Reload the page and try again.'));
+      return;
+    }
+    pendingOAuthRequest = { resolve, reject };
+    try {
+      googleOAuthClient.requestAccessToken({ prompt: 'select_account' });
+    } catch (error) {
+      pendingOAuthRequest = null;
+      reject(error);
     }
   });
+}
+
+function paintAccount(user) {
+  $('#account-label').textContent = user.displayName?.split(' ')[0] || 'Member';
+  const avatar = $('.account-avatar');
+  avatar.innerHTML = user.photoURL ? `<img src="${escapeAttr(user.photoURL)}" alt="" />` : (user.displayName || 'M')[0].toUpperCase();
+  avatar.classList.toggle('has-photo', Boolean(user.photoURL));
+}
+
+async function fetchGoogleProfile(accessToken) {
+  const response = await fetch('https://openidconnect.googleapis.com/v1/userinfo', {
+    headers: { Authorization: `Bearer ${accessToken}` },
+    signal: AbortSignal.timeout(12000)
+  });
+  const profile = await response.json().catch(() => ({}));
+  if (!response.ok || !profile.sub) {
+    if (response.status === 401) throw new Error('Google authorization expired. Connect again to refresh your profile.');
+    throw new Error(profile.error_description || profile.error?.message || 'Could not load your Google account profile. Check the email and profile OAuth permissions.');
+  }
+  return {
+    uid: profile.sub,
+    email: profile.email || '',
+    displayName: profile.name || profile.given_name || profile.email || 'ShortFQ member',
+    photoURL: profile.picture || ''
+  };
 }
 
 function escapeAttr(value) { return String(value).replace(/[&"<>']/g, (char) => ({ '&':'&amp;', '"':'&quot;', '<':'&lt;', '>':'&gt;', "'":'&#39;' }[char])); }
@@ -157,27 +241,34 @@ function saveMember(user, data = {}) {
 
 async function signIn() {
   if (!navigator.onLine) { showToast('You’re offline. Reconnect to sign in with Google.'); return; }
-  if (!firebaseReady()) {
-    showToast('Firebase isn’t connected yet. Add the project settings in src/config.js first.');
+  if (!googleOAuthReady) {
+    try {
+      await prepareGoogleOAuth();
+      $('#connect-status').textContent = 'Google sign-in is ready. Click Continue with Google again.';
+      showToast('Google sign-in is ready. Click again to continue.');
+    } catch (error) {
+      const message = userFacingError(error);
+      $('#connect-status').textContent = message;
+      showToast(message);
+      setConnectBusy(false);
+    }
     return;
   }
   setConnectBusy(true, 'Opening Google sign-in…');
   try {
-    if (!auth) {
-      if (!firebaseInitStarted) firebaseInitPromise = initFirebase();
-      try { await firebaseInitPromise; }
-      catch (error) { firebaseInitStarted = false; throw error; }
-    }
-    if (!auth) throw new Error('Firebase Authentication did not initialize. Check the network and Firebase project settings, then retry.');
-    const { GoogleAuthProvider, signInWithPopup } = await firebaseModule('auth');
-    const provider = new GoogleAuthProvider();
-    provider.addScope('https://www.googleapis.com/auth/youtube.readonly');
-    provider.setCustomParameters({ prompt: 'consent select_account' });
-    const result = await signInWithPopup(auth, provider);
-    const token = GoogleAuthProvider.credentialFromResult(result)?.accessToken;
-    currentUser = result.user;
-    if (!token) throw new Error('Google signed you in but did not grant YouTube read-only access. Choose the YouTube permission in Google’s consent screen and try again.');
+    const token = await requestGoogleAccessToken();
     youtubeAccessToken = token;
+    setConnectBusy(true, 'Loading your Google profile…');
+    const profile = await fetchGoogleProfile(token);
+    const previousProfile = readCachedProfile(profile.uid);
+    if (currentUser?.uid && currentUser.uid !== profile.uid) {
+      channel = null;
+      subscriberTotal = 0;
+    }
+    currentUser = profile;
+    cacheProfile({ ...previousProfile, ...profile });
+    paintAccount(profile);
+    paintCachedProfile({ ...previousProfile, ...profile });
     setConnectBusy(true, 'Finding your YouTube channel…');
     const item = await discoverChannel(token);
     const memberSaved = paintChannel(item);
@@ -241,7 +332,7 @@ async function fetchYouTubeChannel(accessToken) {
 async function refreshStats(showMessage = true) {
   if (!channel) return;
   if (!navigator.onLine) { if (showMessage) showToast('You’re offline. Showing your saved channel snapshot.'); return; }
-  if (!auth?.currentUser) { if (showMessage) await signIn(); return; }
+  if (!currentUser) { if (showMessage) await signIn(); return; }
   if (!youtubeAccessToken) {
     if (showMessage) await signIn();
     return;
@@ -279,10 +370,10 @@ function paintChannel(item) {
 function setConnectedPanels(connected) {
   $('#connect-panel').hidden = connected;
   $('#channel-panel').hidden = !connected;
-  $('#connect-kicker').textContent = currentUser ? 'GOOGLE ACCOUNT SIGNED IN' : 'YOUR FIRST STEP';
-  $('#connect-heading').textContent = currentUser ? 'One more step: connect YouTube.' : 'Connect your YouTube channel.';
+  $('#connect-kicker').textContent = currentUser ? 'SAVED GOOGLE PROFILE' : 'YOUR FIRST STEP';
+  $('#connect-heading').textContent = currentUser ? 'Reconnect to refresh your channel.' : 'Connect your YouTube channel.';
   $('#connect-description').textContent = currentUser
-    ? 'Your Google account is signed in. Continue to approve YouTube read-only access so ShortFQ can find your channel and stats.'
+    ? 'Your profile is saved on this device. Sign in with Google again to refresh your YouTube channel and stats.'
     : 'Sign in with Google, then approve read-only access so ShortFQ can find your channel and load its stats.';
   if (!$('#connect-button').disabled) setConnectBusy(false);
   $('#milestone-section').hidden = !connected || subscriberTotal < 100;
@@ -389,7 +480,7 @@ function navigate(viewName) {
 }
 
 document.querySelectorAll('[data-view]').forEach((link) => link.addEventListener('click', (event) => { event.preventDefault(); const view = link.dataset.view; navigate(view); history.replaceState(null, '', `#${view === 'home' ? 'home' : view}`); }));
-window.addEventListener('online', () => { setConnectionState(); if (firebaseReady() && !auth && !firebaseInitStarted) { firebaseInitPromise = initFirebase(); firebaseInitPromise.catch((error) => { firebaseInitStarted = false; console.info('Firebase is still unavailable:', error); }); } });
+window.addEventListener('online', setConnectionState);
 window.addEventListener('offline', setConnectionState);
 $('#connect-button').addEventListener('click', signIn);
 $('#milestone-more').addEventListener('click', () => { visibleMilestones += 8; renderMilestones(); });
@@ -397,10 +488,14 @@ $('#certificate-more').addEventListener('click', () => { visibleCertificates += 
 $('#account-button').addEventListener('click', async () => {
   if (!currentUser) { await signIn(); return; }
   if (confirm('Sign out of ShortFQ?')) {
-    const { signOut } = await firebaseModule('auth');
-    await signOut(auth);
     localStorage.removeItem(profileCacheKey);
+    youtubeAccessToken = null;
+    currentUser = null;
     channel = null; subscriberTotal = 0;
+    $('#account-label').textContent = 'Your account';
+    const avatar = $('.account-avatar');
+    avatar.textContent = '?';
+    avatar.classList.remove('has-photo');
     $('#profile-name').textContent = 'Not signed in';
     $('#profile-email').textContent = 'Connect your Google account to see your profile.';
     $('#profile-avatar').src = '/avatar-placeholder.svg';
@@ -408,6 +503,17 @@ $('#account-button').addEventListener('click', async () => {
     $('#profile-channel-id').textContent = 'Connect your channel to get started.';
     $('#profile-subscribers').textContent = '—';
     $('#profile-views').textContent = '—';
+    $('#channel-name').textContent = 'Channel name';
+    $('#channel-handle').textContent = 'Connect with Google';
+    $('#subscriber-count').textContent = '—';
+    $('#view-count').textContent = '—';
+    $('#visual-channel-name').textContent = 'Your channel';
+    $('#visual-subscribers').textContent = '—';
+    $('#visual-views').textContent = '—';
+    $('#reached-count').textContent = '0';
+    setConnectedPanels(false);
+    renderMilestones();
+    renderCertificates();
     navigate('home'); showToast('You’re signed out. See you again soon.');
   }
 });
@@ -420,11 +526,11 @@ const bootStartedAt = performance.now();
 setConnectionState();
 paintCachedProfile(readCachedProfile());
 navigator.serviceWorker?.register('/sw.js').catch((error) => console.info('Offline shell registration unavailable:', error));
-firebaseInitPromise = initFirebase();
-firebaseInitPromise.catch((error) => {
-  firebaseInitStarted = false;
-  console.error('Firebase initialization failed:', error);
-  showToast('Firebase is unavailable right now. The page is ready; try connecting again in a moment.');
+setConnectBusy(true, 'Loading Google sign-in…');
+prepareGoogleOAuth().then(() => setConnectBusy(false)).catch((error) => {
+  console.info('Google sign-in did not load:', error);
+  setConnectBusy(false);
+  $('#connect-status').textContent = 'Google sign-in could not load. Check your connection and try again.';
 });
 if (location.hash === '#certificates') navigate('certificates');
 else if (location.hash === '#profile') navigate('profile');
@@ -432,4 +538,3 @@ else if (location.hash === '#credits') navigate('credits');
 const bootRemaining = 700 - (performance.now() - bootStartedAt);
 if (bootRemaining > 0) await new Promise((resolve) => setTimeout(resolve, bootRemaining));
 showApp();
-
