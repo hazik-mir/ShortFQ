@@ -1,18 +1,18 @@
 # ShortFQ
 
-ShortFQ is a green, responsive YouTube creator dashboard for channel statistics and shareable subscriber milestone certificates.
+ShortFQ is a monochrome YouTube creator dashboard with a saved offline profile, current channel statistics, and subscriber milestone certificates. The static app shell and the last profile snapshot are cached on the device; Google sign-in and live YouTube refreshes need an internet connection.
 
 ## Connect Firebase
 
 1. Create or select a Firebase project. Enable Google as an Authentication provider and add `localhost` plus `shortfq.hazik.in` to its authorized domains.
 2. Create a Cloud Firestore database. Deploy the included owner-only rules with `firebase deploy --only firestore:rules`.
-3. Copy the Firebase web app settings into `src/config.js`. The YouTube Data API key is never placed in the browser source.
+3. The Firebase web app settings are in `src/config.js`; the Firebase web API key is a public client identifier. Restrict it in Google Cloud/Firebase and keep the YouTube Data API key in Firebase Secret Manager.
 4. Set up the Google OAuth consent screen for YouTube read-only access. The app asks for `youtube.readonly` to identify the signed-in user's own channel. A Firebase callable function retrieves channel statistics.
 5. Add your Firebase project ID with `firebase use --add`. Set the API key in Firebase Secret Manager with `firebase functions:secrets:set YOUTUBE_API_KEY`, then deploy with `firebase deploy --only functions,hosting,firestore:rules`.
 
 The YouTube key is consumed only by `functions/getMyChannelStats`, which requires Firebase Authentication and reads the key through Firebase Secret Manager. The Google access token is sent to the callable function over HTTPS and is not stored. Cloud Functions deployment requires the Firebase project to use the Blaze plan; review budget alerts before deploying.
 
-Firebase setup is intentionally not faked in the source: no Firebase project credentials or API keys were supplied. Google sign-in stays disabled until the real web config is added. Do not commit API keys or paste them into chat; enter the YouTube key directly when the Firebase CLI prompts for the secret.
+Google sign-in uses the configured Firebase project. Do not place the YouTube API key in client-side files or commit it; enter it directly when the Firebase CLI prompts for the secret.
 
 ## Domain and public hosting
 
@@ -25,3 +25,4 @@ The supplied Adsterra popunder, social bar, native banner, and 160×300 banner p
 ## License
 
 License reference supplied by the owner: <https://hazik-mir.github.io>. The published [HDPL Universal License](https://github.com/hazik-mir/license/blob/main/LICENSE) reserves commercial use for written permission. Confirm the terms for this ad-supported public project before launch.
+
