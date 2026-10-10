@@ -1,9 +1,9 @@
-const CACHE_NAME = 'shortfq-shell-v2';
+const CACHE_NAME = 'shortfq-shell-v3';
 const SHELL_FILES = [
   '/',
   '/index.html',
-  '/styles.css',
-  '/src/main.js',
+  '/styles.css?v=offline-20261010',
+  '/src/main.js?v=offline-20261010',
   '/src/config.js',
   '/avatar-placeholder.svg',
   '/favicon.svg',
