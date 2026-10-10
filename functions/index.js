@@ -21,12 +21,22 @@ exports.getMyChannelStats = onCall({
     throw new HttpsError('invalid-argument', 'A valid Google YouTube access token is required.');
   }
 
+  let apiKey;
+  try {
+    apiKey = youtubeApiKey.value();
+  } catch {
+    throw new HttpsError('failed-precondition', 'YOUTUBE_API_KEY is not set in Firebase Secret Manager. Set the secret and redeploy the getMyChannelStats function.');
+  }
+  if (!apiKey) {
+    throw new HttpsError('failed-precondition', 'YOUTUBE_API_KEY is empty in Firebase Secret Manager. Set the secret and redeploy the getMyChannelStats function.');
+  }
+
   let response;
   try {
     const query = new URLSearchParams({
       part: 'snippet,statistics',
       mine: 'true',
-      key: youtubeApiKey.value()
+      key: apiKey
     });
     response = await fetch(`https://www.googleapis.com/youtube/v3/channels?${query}`, {
       headers: { Authorization: `Bearer ${accessToken}` },
@@ -36,11 +46,27 @@ exports.getMyChannelStats = onCall({
     throw new HttpsError('unavailable', 'YouTube could not be reached. Try again in a moment.');
   }
 
+  const body = await response.json().catch(() => ({}));
   if (!response.ok) {
-    throw new HttpsError('failed-precondition', 'YouTube could not read this channel. Reconnect Google and check YouTube Data API access.');
+    const reason = body.error?.errors?.[0]?.reason || '';
+    if (reason === 'keyInvalid') {
+      throw new HttpsError('failed-precondition', 'YOUTUBE_API_KEY is invalid. Replace the Firebase Secret Manager value with a valid YouTube Data API v3 key.');
+    }
+    if (reason === 'accessNotConfigured') {
+      throw new HttpsError('failed-precondition', 'YouTube Data API v3 is not enabled for the Google Cloud project that owns YOUTUBE_API_KEY. Enable it, then try again.');
+    }
+    if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') {
+      throw new HttpsError('resource-exhausted', 'The YouTube Data API quota is exhausted. Try again after the quota resets.');
+    }
+    if (response.status === 401 || reason === 'authError') {
+      throw new HttpsError('unauthenticated', 'Google YouTube access expired. Connect YouTube again and approve read-only access.');
+    }
+    if (reason === 'insufficientPermissions') {
+      throw new HttpsError('permission-denied', 'Google did not grant YouTube read-only access. Connect YouTube again and approve the requested permission.');
+    }
+    throw new HttpsError('failed-precondition', body.error?.message || `YouTube Data API v3 returned HTTP ${response.status}. Check the API key, enabled API, quota, and OAuth permissions.`);
   }
 
-  const body = await response.json();
   const item = body.items?.[0];
   if (!item) return { channel: null };
 
@@ -59,3 +85,4 @@ exports.getMyChannelStats = onCall({
     }
   };
 });
+
