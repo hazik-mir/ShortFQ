@@ -1,4 +1,4 @@
-const CACHE_NAME = 'shortfq-shell-v1';
+const CACHE_NAME = 'shortfq-shell-v2';
 const SHELL_FILES = [
   '/',
   '/index.html',
