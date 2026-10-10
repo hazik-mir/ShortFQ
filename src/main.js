@@ -9,8 +9,6 @@ const today = new Intl.DateTimeFormat('en', { weekday: 'short', month: 'short', 
 $('#today-label').textContent = today.format(new Date());
 
 let auth = null;
-let db = null;
-let functionsClient = null;
 let currentUser = null;
 let channel = null;
 let youtubeAccessToken = null;
@@ -32,7 +30,10 @@ function readCachedProfile(uid = null) {
 }
 
 function cacheProfile(data) {
-  try { localStorage.setItem(profileCacheKey, JSON.stringify({ ...readCachedProfile(data.uid), ...data, cachedAt: Date.now() })); } catch { /* Private browsing can disable local storage. */ }
+  try {
+    localStorage.setItem(profileCacheKey, JSON.stringify({ ...readCachedProfile(data.uid), ...data, cachedAt: Date.now() }));
+    return true;
+  } catch { return false; /* Private browsing can disable local storage. */ }
 }
 
 function setConnectionState() {
@@ -94,17 +95,11 @@ function userFacingError(error) {
   if (code === 'auth/unauthorized-domain') return 'This website domain is not authorized in Firebase Authentication. Add shortfq.hazik.in to the Firebase project’s Authorized domains.';
   if (code === 'auth/popup-blocked') return 'Your browser blocked the Google sign-in window. Allow popups for this site and try again.';
   if (code === 'auth/popup-closed-by-user') return '';
-  if (code === 'functions/not-found' || /getMyChannelStats.*not found/i.test(message)) return 'The YouTube lookup function is not deployed yet. Deploy Firebase Functions for project shortfq-by-hazik.';
-  if (code === 'functions/internal' || code === 'internal' || /^INTERNAL$/i.test(message.trim())) {
-    const diagnostic = message.match(/Diagnostic ID:\s*([a-f0-9-]+)/i)?.[1];
-    return diagnostic
-      ? `Firebase’s YouTube function crashed (ID ${diagnostic}). Check the getMyChannelStats logs in Firebase, then redeploy the function.`
-      : 'Firebase returned an internal error. The function may be missing, in the wrong region, or crashing. Deploy getMyChannelStats to us-central1 and check its Firebase logs.';
-  }
-  if (code === 'functions/unauthenticated') return 'Google sign-in expired. Connect again to continue.';
-  if (code === 'functions/unavailable') return 'YouTube or the Firebase backend is temporarily unavailable. Try again shortly.';
-  if (code === 'functions/failed-precondition' || code === 'functions/permission-denied') return message;
-  if (/403|accessNotConfigured|YouTube Data API/i.test(message)) return message;
+  if (code === 'auth/network-request-failed') return 'Google sign-in could not reach Firebase. Check your connection and try again.';
+  if (/quotaExceeded|dailyLimitExceeded/i.test(message)) return 'YouTube’s daily API quota has been reached. Try again after it resets.';
+  if (/accessNotConfigured/i.test(message)) return 'YouTube Data API v3 is not enabled for this Google project yet.';
+  if (/insufficientPermissions/i.test(message)) return 'Google did not grant YouTube read-only access. Connect again and approve the requested permission.';
+  if (/YouTube authorization expired/i.test(message)) return 'Your Google YouTube access expired. Connect again to refresh your channel stats.';
   return message;
 }
 
@@ -121,20 +116,13 @@ function firebaseReady() {
 async function initFirebase() {
   if (!firebaseReady() || !navigator.onLine || firebaseInitStarted) return;
   firebaseInitStarted = true;
-  const [appSdk, authSdk, firestoreSdk, functionsSdk] = await Promise.all([
+  const [appSdk, authSdk] = await Promise.all([
     firebaseModule('app'),
-    firebaseModule('auth'),
-    firebaseModule('firestore'),
-    firebaseModule('functions')
+    firebaseModule('auth')
   ]);
   const firebaseApp = appSdk.initializeApp(firebaseConfig);
-  firebaseModule('analytics').then(async (analyticsSdk) => {
-    if (await analyticsSdk.isSupported()) analyticsSdk.getAnalytics(firebaseApp);
-  }).catch((error) => console.info('Firebase Analytics is unavailable in this browser:', error));
   auth = authSdk.getAuth(firebaseApp);
   await authSdk.setPersistence(auth, authSdk.browserLocalPersistence);
-  db = firestoreSdk.getFirestore(firebaseApp);
-  functionsClient = functionsSdk.getFunctions(firebaseApp, 'us-central1');
   authSdk.onAuthStateChanged(auth, async (user) => {
     currentUser = user;
     if (user) {
@@ -146,18 +134,13 @@ async function initFirebase() {
       cacheProfile(member);
       paintCachedProfile(member, !navigator.onLine);
       setConnectedPanels(Boolean(member.channelId));
-      loadMember(user.uid).then((stored) => {
-        if (!stored) return;
-        const freshMember = { ...member, ...stored, ...(readCachedProfile(user.uid) || {}), uid: user.uid, email: user.email || '', displayName: user.displayName || '', photoURL: user.photoURL || '' };
-        cacheProfile(freshMember);
-        paintCachedProfile(freshMember, !navigator.onLine);
-        setConnectedPanels(Boolean(freshMember.channelId));
-      }).catch((error) => console.info('Profile refresh is unavailable:', error));
     } else {
       $('#account-label').textContent = 'Your account';
       $('.account-avatar').textContent = '?';
       $('.account-avatar').classList.remove('has-photo');
-      setConnectedPanels(false);
+      const cached = readCachedProfile();
+      if (cached) paintCachedProfile(cached, !navigator.onLine);
+      setConnectedPanels(Boolean(cached?.channelId));
       setConnectBusy(false);
     }
   });
@@ -165,44 +148,11 @@ async function initFirebase() {
 
 function escapeAttr(value) { return String(value).replace(/[&"<>']/g, (char) => ({ '&':'&amp;', '"':'&quot;', '<':'&lt;', '>':'&gt;', "'":'&#39;' }[char])); }
 
-async function saveMember(user, data = {}) {
+function saveMember(user, data = {}) {
   const cached = { ...readCachedProfile(user.uid), uid: user.uid, email: user.email || '', displayName: user.displayName || '', photoURL: user.photoURL || '', ...data };
-  cacheProfile(cached);
+  const saved = cacheProfile(cached);
   paintCachedProfile(cached, !navigator.onLine);
-  if (!navigator.onLine || !db) return false;
-  try {
-    const { doc, setDoc, serverTimestamp } = await firebaseModule('firestore');
-    const memberRef = doc(db, 'members', user.uid);
-    await setDoc(memberRef, {
-      uid: user.uid,
-      email: user.email || '',
-      displayName: user.displayName || '',
-      photoURL: user.photoURL || '',
-      ...data,
-      updatedAt: serverTimestamp()
-    }, { merge: true });
-    return true;
-  } catch (error) {
-    console.info('Could not sync the local profile to Firestore:', error);
-    return false;
-  }
-}
-
-async function loadMember(uid) {
-  if (!navigator.onLine || !db) return readCachedProfile(uid);
-  try {
-  const { doc, getDoc } = await firebaseModule('firestore');
-  const snapshot = await Promise.race([
-    getDoc(doc(db, 'members', uid)),
-    new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore profile read timed out.')), 6500))
-  ]);
-  const data = snapshot.exists() ? snapshot.data() : null;
-  if (data) cacheProfile(data);
-  return data || readCachedProfile(uid);
-  } catch (error) {
-    console.info('Using the saved profile because Firestore is unavailable:', error);
-    return readCachedProfile(uid);
-  }
+  return saved;
 }
 
 async function signIn() {
@@ -230,11 +180,11 @@ async function signIn() {
     youtubeAccessToken = token;
     setConnectBusy(true, 'Finding your YouTube channel…');
     const item = await discoverChannel(token);
-    const memberSaved = await paintChannel(item);
+    const memberSaved = paintChannel(item);
     setConnectBusy(false);
     showToast(memberSaved
-      ? `Connected to ${channel.title}. Stats and member profile saved.`
-      : `Connected to ${channel.title}, but Firebase could not save the member profile. Check Firestore setup and rules.`);
+      ? `Connected to ${channel.title}. Your profile is saved on this device.`
+      : `Connected to ${channel.title}, but this browser could not save the profile. Check local storage settings.`);
   } catch (error) {
     const message = userFacingError(error);
     setConnectedPanels(Boolean(readCachedProfile(currentUser?.uid)?.channelId));
@@ -247,7 +197,7 @@ async function signIn() {
 }
 
 async function discoverChannel(token) {
-  const item = await getMyChannelStats(token);
+  const item = await fetchYouTubeChannel(token);
   if (!item) throw new Error('No YouTube channel was found for this Google account. Try the Google account that owns or manages your channel.');
   channel = mapChannel(item);
   setConnectedPanels(true);
@@ -258,13 +208,34 @@ function mapChannel(item) {
   return { id: item.id, title: item.snippet?.title || 'Your channel', thumbnail: item.snippet?.thumbnails?.default?.url || '/avatar-placeholder.svg' };
 }
 
-async function getMyChannelStats(accessToken) {
-  const { httpsCallable } = await firebaseModule('functions');
-  const result = await httpsCallable(functionsClient, 'getMyChannelStats', { timeout: 25000 })({ accessToken });
-  if (!result?.data || !Object.prototype.hasOwnProperty.call(result.data, 'channel')) {
-    throw new Error('Firebase returned an invalid response from getMyChannelStats. Confirm the function is deployed to us-central1.');
+async function fetchYouTubeChannel(accessToken) {
+  const params = new URLSearchParams({ part: 'snippet,statistics', mine: 'true' });
+  let response;
+  try {
+    response = await fetch(`https://www.googleapis.com/youtube/v3/channels?${params}`, {
+      headers: { Authorization: `Bearer ${accessToken}` },
+      signal: AbortSignal.timeout(15000)
+    });
+  } catch (error) {
+    if (!navigator.onLine) throw new Error('You’re offline. Reconnect to refresh YouTube channel stats.');
+    if (error?.name === 'TimeoutError') throw new Error('YouTube took too long to respond. Try again in a moment.');
+    throw new Error('Could not reach YouTube Data API. Check your connection and try again.');
   }
-  return result.data.channel;
+
+  const body = await response.json().catch(() => ({}));
+  if (!response.ok) {
+    const reason = body.error?.errors?.[0]?.reason || '';
+    if (response.status === 401 || reason === 'authError') {
+      youtubeAccessToken = null;
+      throw new Error('YouTube authorization expired.');
+    }
+    if (reason === 'quotaExceeded' || reason === 'dailyLimitExceeded') throw new Error('YouTube Data API quotaExceeded.');
+    if (reason === 'accessNotConfigured') throw new Error('YouTube Data API accessNotConfigured. Enable YouTube Data API v3 in the Google project used for sign-in.');
+    if (reason === 'insufficientPermissions') throw new Error('YouTube API insufficientPermissions. Approve the read-only YouTube permission when connecting.');
+    throw new Error(body.error?.message || `YouTube Data API returned HTTP ${response.status}.`);
+  }
+
+  return body.items?.[0] || null;
 }
 
 async function refreshStats(showMessage = true) {
@@ -276,14 +247,14 @@ async function refreshStats(showMessage = true) {
     return;
   }
   try {
-    const item = await getMyChannelStats(youtubeAccessToken);
+    const item = await fetchYouTubeChannel(youtubeAccessToken);
     if (!item) throw new Error('No YouTube channel is linked to this Google account.');
-    const memberSaved = await paintChannel(item);
-    if (showMessage) showToast(memberSaved ? 'Your channel stats and member profile are up to date.' : 'Stats are refreshed locally, but Firebase could not save the member profile. Check Firestore setup and rules.');
+    const memberSaved = paintChannel(item);
+    if (showMessage) showToast(memberSaved ? 'Your channel stats and local profile are up to date.' : 'Stats are refreshed, but this browser could not save the profile.');
   } catch (error) { if (showMessage) showToast(userFacingError(error) || 'Could not refresh channel stats.'); }
 }
 
-async function paintChannel(item) {
+function paintChannel(item) {
   channel = mapChannel(item);
   const hiddenSubscribers = Boolean(item.statistics?.hiddenSubscriberCount) || item.statistics?.subscriberCount == null;
   subscriberTotal = Number(item.statistics?.subscriberCount || 0);
@@ -300,7 +271,7 @@ async function paintChannel(item) {
   $('#reached-count').textContent = fmt(earned);
   renderMilestones();
   renderCertificates();
-  const memberSaved = currentUser ? await saveMember(currentUser, { channelId: channel.id, channelTitle: channel.title, channelPhoto: channel.thumbnail, subscriberCount: hiddenSubscribers ? null : subscriberTotal, hiddenSubscriberCount: hiddenSubscribers, viewCount: Number(item.statistics?.viewCount || 0) }) : false;
+  const memberSaved = currentUser ? saveMember(currentUser, { channelId: channel.id, channelTitle: channel.title, channelPhoto: channel.thumbnail, subscriberCount: hiddenSubscribers ? null : subscriberTotal, hiddenSubscriberCount: hiddenSubscribers, viewCount: Number(item.statistics?.viewCount || 0) }) : false;
   paintCachedProfile({ ...readCachedProfile(), ...(currentUser ? { email: currentUser.email, displayName: currentUser.displayName, photoURL: currentUser.photoURL } : {}), channelId: channel.id, channelTitle: channel.title, channelPhoto: channel.thumbnail, subscriberCount: hiddenSubscribers ? null : subscriberTotal, hiddenSubscriberCount: hiddenSubscribers, viewCount: Number(item.statistics?.viewCount || 0) }, false);
   return memberSaved;
 }
