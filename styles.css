@@ -68,14 +68,14 @@ body { background: #08090a; color: #e6e7e4; }
 /* Simpler, larger monochrome layout with an offline profile and channel card. */
 @font-face {
   font-family: 'Clash Regular';
-  src: url('/Clash_regular.ttf') format('opentype');
+  src: url('/Clash_regular.ttf') format('truetype');
   font-style: normal;
   font-weight: 400;
   font-display: swap;
 }
 @font-face {
   font-family: 'Clash Bold';
-  src: url('/Clash_bold.ttf') format('opentype');
+  src: url('/Clash_bold.ttf') format('truetype');
   font-style: normal;
   font-weight: 700;
   font-display: swap;
@@ -231,5 +231,88 @@ body, button, .button, .account-button, .nav-link, input, select, textarea {
 }
 @media (prefers-reduced-motion: reduce) {
   .channel-3d-face, .channel-3d-face:hover { transform: none; }
+}
+
+/* A slightly tighter scale keeps the same layout and type while reducing the oversized feel. */
+.app-shell { grid-template-columns: 244px 1fr; }
+.sidebar { width: 244px; }
+.brand { font-size: 21px; }
+.nav-link { min-height: 47px; font-size: 14px; }
+.main-content { max-width: 1480px; padding-inline: clamp(22px, 5vw, 76px); }
+.topbar { min-height: 74px; }
+.breadcrumb, .top-date, .connection-state, .account-button { font-size: 13px; }
+.view { padding-top: 39px; }
+.welcome-row { min-height: 202px; }
+.welcome-row h1, .inner-hero h1 { font-size: clamp(42px, 4.5vw, 59px); }
+.lead { font-size: 16px; }
+.connect-copy { padding: 30px; }
+.connect-copy h2, .channel-heading h2, .empty-milestones h2 { font-size: 23px; }
+.connect-copy > p:not(.privacy-note), .security-note, .privacy-note { font-size: 12px; }
+.button { font-size: 14px; }
+.button-primary { padding: 13px 17px; }
+.channel-panel { padding: 24px; }
+.channel-heading { margin-bottom: 20px; }
+.channel-heading h2 { font-size: 22px; }
+.channel-identity img { width: 52px; height: 52px; }
+.stat-card { padding: 17px; }
+.stat-top, .stat-foot, .channel-handle { font-size: 12px; }
+.stat-card > strong { font-size: 30px; }
+.milestone-section { margin-top: 42px; }
+.section-heading h2 { font-size: 25px; }
+.milestone-item { grid-template-columns: 43px 1fr auto; padding: 14px 16px; }
+.milestone-icon { width: 41px; height: 41px; }
+.milestone-info strong { font-size: 15px; }
+.certificate-grid { gap: 16px; }
+.certificate-card-info h3 { font-size: 15px; }
+.certificate-card-info p, .card-action, .badge { font-size: 11px; }
+.profile-card { gap: 16px; padding: 22px; }
+.profile-card > img { width: 72px; height: 72px; }
+.profile-copy h2 { font-size: 24px; }
+.profile-copy p { font-size: 13px; }
+.profile-stats { gap: 13px; }
+.profile-stats article { padding: 19px; }
+.profile-stats strong { font-size: 21px; }
+.credits-list { gap: 13px; }
+.credits-list article { padding: 22px; }
+.credits-list strong { font-size: 21px; }
+.credits-list p, .credits-note { font-size: 13px; }
+.connect-status { margin: 9px 0 12px; color: #e1e1e1; font-size: 12px; line-height: 1.5; }
+#connect-button:disabled { opacity: .72; cursor: wait; }
+
+@media (max-width: 950px) {
+  .app-shell { grid-template-columns: 210px 1fr; }
+  .sidebar { width: 210px; }
+  .main-content { padding-inline: 28px; }
+  .welcome-row h1, .inner-hero h1 { font-size: clamp(40px, 5vw, 54px); }
+}
+@media (max-width: 720px) {
+  .app-shell { padding-bottom: 70px; }
+  .sidebar { height: 70px; }
+  .nav-link { height: 55px; min-height: 55px; font-size: 10px; }
+  .nav-icon { font-size: 17px; }
+  .main-content { padding-inline: 16px; }
+  .topbar { min-height: 64px; }
+  .view { padding-top: 26px; }
+  .welcome-row { min-height: 167px; }
+  .welcome-row h1, .inner-hero h1 { font-size: 40px; }
+  .lead { font-size: 14px; }
+  .connect-copy { padding: 20px 16px; }
+  .connect-copy h2 { font-size: 20px; }
+  .connect-copy > p:not(.privacy-note), .security-note, .privacy-note { font-size: 10px; }
+  .connect-status { font-size: 10px; }
+  .button { font-size: 12px; }
+  .channel-panel { padding: 15px 12px; }
+  .channel-heading h2 { font-size: 18px; }
+  .stat-card { padding: 12px; }
+  .stat-card > strong { font-size: 24px; }
+  .stat-top, .stat-foot { font-size: 10px; }
+  .section-heading h2 { font-size: 19px; }
+  .milestone-item { grid-template-columns: 36px 1fr auto; padding: 10px; }
+  .milestone-icon { width: 34px; height: 34px; }
+  .milestone-info strong { font-size: 12px; }
+  .profile-card { padding: 16px; }
+  .profile-card > img { width: 58px; height: 58px; }
+  .profile-copy h2 { font-size: 20px; }
+  .profile-copy p { font-size: 12px; }
 }
 
