@@ -16,6 +16,9 @@ let channel = null;
 let youtubeAccessToken = null;
 let subscriberTotal = 0;
 let toastTimer;
+let firebaseInitPromise = Promise.resolve();
+const firebaseSdkVersion = '13.0.0';
+const firebaseModule = (name) => import(`https://www.gstatic.com/firebasejs/${firebaseSdkVersion}/firebase-${name}.js`);
 
 function showToast(message) {
   const toast = $('#toast');
@@ -37,16 +40,16 @@ function firebaseReady() {
 
 async function initFirebase() {
   if (!firebaseReady()) return;
-  const [appSdk, authSdk, firestoreSdk] = await Promise.all([
-    import('https://www.gstatic.com/firebasejs/12.19.0/firebase-app.js'),
-    import('https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js'),
-    import('https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js')
+  const [appSdk, authSdk, firestoreSdk, functionsSdk] = await Promise.all([
+    firebaseModule('app'),
+    firebaseModule('auth'),
+    firebaseModule('firestore'),
+    firebaseModule('functions')
   ]);
   const firebaseApp = appSdk.initializeApp(firebaseConfig);
   auth = authSdk.getAuth(firebaseApp);
-  authSdk.setPersistence(auth, authSdk.browserLocalPersistence);
+  await authSdk.setPersistence(auth, authSdk.browserLocalPersistence);
   db = firestoreSdk.getFirestore(firebaseApp);
-  const functionsSdk = await import('https://www.gstatic.com/firebasejs/12.19.0/firebase-functions.js');
   functionsClient = functionsSdk.getFunctions(firebaseApp, 'us-central1');
   authSdk.onAuthStateChanged(auth, async (user) => {
     currentUser = user;
@@ -82,7 +85,7 @@ async function initFirebase() {
 function escapeAttr(value) { return String(value).replace(/[&"<>']/g, (char) => ({ '&':'&amp;', '"':'&quot;', '<':'&lt;', '>':'&gt;', "'":'&#39;' }[char])); }
 
 async function saveMember(user, data = {}) {
-  const { doc, getDoc, setDoc, serverTimestamp } = await import('https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js');
+  const { doc, getDoc, setDoc, serverTimestamp } = await firebaseModule('firestore');
   const memberRef = doc(db, 'members', user.uid);
   const exists = (await getDoc(memberRef)).exists();
   await setDoc(memberRef, {
@@ -97,7 +100,7 @@ async function saveMember(user, data = {}) {
 }
 
 async function loadMember(uid) {
-  const { doc, getDoc } = await import('https://www.gstatic.com/firebasejs/12.19.0/firebase-firestore.js');
+  const { doc, getDoc } = await firebaseModule('firestore');
   const snapshot = await getDoc(doc(db, 'members', uid));
   return snapshot.exists() ? snapshot.data() : null;
 }
@@ -108,14 +111,14 @@ async function signIn() {
     return;
   }
   try {
-    const { GoogleAuthProvider, signInWithPopup, getAdditionalUserInfo } = await import('https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js');
+    await firebaseInitPromise;
+    const { GoogleAuthProvider, signInWithPopup } = await firebaseModule('auth');
     const provider = new GoogleAuthProvider();
     provider.addScope('https://www.googleapis.com/auth/youtube.readonly');
     provider.setCustomParameters({ prompt: 'select_account' });
     const result = await signInWithPopup(auth, provider);
     const token = GoogleAuthProvider.credentialFromResult(result)?.accessToken;
-    const info = getAdditionalUserInfo(result);
-    if (info?.isNewUser) await saveMember(result.user);
+    await saveMember(result.user);
     if (!token) throw new Error('Google did not return YouTube permission. Please try connecting again.');
     youtubeAccessToken = token;
     await discoverChannel(result.user, token);
@@ -141,7 +144,7 @@ function mapChannel(item) {
 }
 
 async function getMyChannelStats(accessToken) {
-  const { httpsCallable } = await import('https://www.gstatic.com/firebasejs/12.19.0/firebase-functions.js');
+  const { httpsCallable } = await firebaseModule('functions');
   const result = await httpsCallable(functionsClient, 'getMyChannelStats')({ accessToken });
   return result.data.channel;
 }
@@ -252,7 +255,7 @@ async function drawCertificate(target) {
   return canvas;
 }
 
-function showCertificate(target) {
+async function showCertificate(target) {
   const modal = $('#certificate-modal');
   const canvas = await drawCertificate(target);
   $('#modal-content').innerHTML = `<span class="card-kicker">LOOK HOW FAR YOU’VE COME</span><h2 id="modal-title">${titleFor(target)}</h2><p>Milestone completed by ShortFQ to ${escapeAttr(channel?.title || 'your channel')}.</p><div class="cert-canvas-wrap"></div><div class="cert-actions"><button id="download-cert" class="button button-primary" type="button">↓ Save certificate</button><button id="share-cert" class="button button-soft" type="button">↗ Share your moment</button></div>`;
@@ -289,7 +292,11 @@ $('#certificate-modal').addEventListener('click', (event) => { if (event.target.
 window.addEventListener('keydown', (event) => { if (event.key === 'Escape') $('#certificate-modal').hidden = true; });
 
 const bootStartedAt = performance.now();
-try { await initFirebase(); } catch (error) { console.error('Firebase initialization failed:', error); showToast('We couldn’t connect to Firebase. Check your project config and try again.'); }
+firebaseInitPromise = initFirebase();
+firebaseInitPromise.catch((error) => {
+  console.error('Firebase initialization failed:', error);
+  showToast('Firebase is unavailable right now. The page is ready; try connecting again in a moment.');
+});
 if (location.hash === '#certificates') navigate('certificates');
 else if (location.hash === '#about') navigate('about');
 const bootRemaining = 700 - (performance.now() - bootStartedAt);
