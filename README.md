@@ -1,18 +1,15 @@
 # ShortFQ
 
-ShortFQ is a monochrome YouTube creator dashboard with a saved offline profile, current channel statistics, and subscriber milestone certificates. The static app shell and the last profile snapshot are cached on the device; Google sign-in and live YouTube refreshes need an internet connection.
+ShortFQ is a monochrome YouTube creator dashboard with current channel statistics and subscriber milestone certificates. Google sign-in and live YouTube refreshes need an internet connection; the member profile and last channel snapshot are saved in this browser only.
 
 ## Connect Firebase
 
 1. Create or select a Firebase project. Enable Google as an Authentication provider and add `localhost` plus `shortfq.hazik.in` to its authorized domains.
-2. Create a Cloud Firestore database. Deploy the included owner-only rules with `firebase deploy --only firestore:rules`.
-3. The Firebase web app settings are in `src/config.js`; the Firebase web API key is a public client identifier. Restrict it in Google Cloud/Firebase and keep the YouTube Data API key in Firebase Secret Manager.
-4. Set up the Google OAuth consent screen for YouTube read-only access. The app asks for `youtube.readonly` to identify the signed-in user's own channel. A Firebase callable function retrieves channel statistics.
-5. Add your Firebase project ID with `firebase use --add`. Set the API key in Firebase Secret Manager with `firebase functions:secrets:set YOUTUBE_API_KEY`, then deploy with `firebase deploy --only functions,firestore:rules`. GitHub Pages serves the web app; Firebase Hosting is optional.
+2. The Firebase web app settings are in `src/config.js`. The Firebase web API key is a public client identifier; restrict it to the project's APIs and authorized domains.
+3. Google sign-in requests YouTube read-only permission, then the browser calls YouTube Data API v3 with the user's short-lived OAuth access token. No YouTube API key, Cloud Function, Firestore database, or Firebase Storage is required for this app flow.
+4. GitHub Pages serves the static web app. Firebase Hosting is optional. This setup does not require the Blaze plan for a Cloud Function.
 
-The YouTube key is consumed only by `functions/getMyChannelStats`, which requires Firebase Authentication and reads the key through Firebase Secret Manager. The Google access token is sent to the callable function over HTTPS and is not stored. Cloud Functions deployment requires the Firebase project to use the Blaze plan; review budget alerts before deploying. ShortFQ reports actionable setup messages when the function is missing, the key is invalid, the API is disabled, quota is exhausted, or YouTube permission was not granted. Unexpected function crashes return a diagnostic ID and write a redacted error record to Cloud Logging. Inspect it with `firebase functions:log --only getMyChannelStats --project shortfq-by-hazik`.
-
-Google sign-in uses the configured Firebase project. Do not place the YouTube API key in client-side files or commit it; enter it directly when the Firebase CLI prompts for the secret.
+Only the profile fields and the latest channel statistics are saved in browser `localStorage`. The OAuth access token stays in memory and is never saved to local storage. Clearing this browser's site data removes the saved profile; it does not sync across browsers or devices.
 
 ## Domain and public hosting
 
