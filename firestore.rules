@@ -8,16 +8,17 @@ service cloud.firestore {
         && request.resource.data.uid == request.auth.uid
         && request.resource.data.keys().hasOnly([
           'uid', 'email', 'displayName', 'photoURL', 'channelId', 'channelTitle',
-          'channelPhoto', 'subscriberCount', 'viewCount', 'createdAt', 'updatedAt'
+          'channelPhoto', 'subscriberCount', 'hiddenSubscriberCount', 'viewCount', 'createdAt', 'updatedAt'
         ]);
       allow update: if request.auth != null
         && request.auth.uid == memberId
         && request.resource.data.uid == resource.data.uid
         && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
           'email', 'displayName', 'photoURL', 'channelId', 'channelTitle',
-          'channelPhoto', 'subscriberCount', 'viewCount', 'updatedAt'
+          'channelPhoto', 'subscriberCount', 'hiddenSubscriberCount', 'viewCount', 'updatedAt'
         ]);
       allow delete: if request.auth != null && request.auth.uid == memberId;
     }
   }
 }
+
