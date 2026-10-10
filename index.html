@@ -21,7 +21,7 @@
     </script>
     <title>ShortFQ — YouTube milestone certificates</title>
     <script data-cfasync="false" src="https://abscloud.org/1/0c8d4035f6c6e044cc88dd6339419880"></script>
-    <link rel="stylesheet" href="/styles.css?v=offline-font-20261010" />
+    <link rel="stylesheet" href="/styles.css?v=compact-20261010" />
   </head>
   <body>
     <div id="boot-screen" class="boot-screen" aria-live="polite">
@@ -58,7 +58,7 @@
 
           <section id="connect-panel" class="connect-card">
             <div class="connect-art"><span class="connect-play">▶</span><i class="spark spark-a">✦</i><i class="spark spark-b">✳</i><i class="spark spark-c">·</i></div>
-            <div class="connect-copy"><span class="card-kicker">YOUR FIRST STEP</span><h2>Connect your YouTube channel.</h2><p>Sign in with Google to connect the YouTube channel linked to your account.</p><button class="button button-primary" id="connect-button" type="button"><svg viewBox="0 0 18 18" aria-hidden="true"><path fill="#4285F4" d="M17.6 9.2c0-.6-.1-1.1-.2-1.7H9v3.2h4.8c-.2 1-.8 1.9-1.7 2.5v2.1h2.8c1.7-1.6 2.7-3.9 2.7-6.1z"/><path fill="#34A853" d="M9 18c2.4 0 4.4-.8 5.9-2.2l-2.8-2.1c-.8.5-1.8.8-3.1.8-2.3 0-4.3-1.6-5-3.7H1.1v2.2A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M4 10.8a5.4 5.4 0 0 1 0-3.5V5.1H1.1a9 9 0 0 0 0 7.9L4 10.8z"/><path fill="#EA4335" d="M9 3.6c1.3 0 2.5.5 3.4 1.4l2.5-2.5A8.7 8.7 0 0 0 9 0a9 9 0 0 0-7.9 5.1L4 7.3c.7-2.1 2.7-3.7 5-3.7z"/></svg> Sign in with Google <span>↗</span></button><p class="security-note">Google will request YouTube read-only access for your channel and stats. If Google shows a security or unverified-app warning, stop and do not bypass it. The app owner needs to complete Google verification.</p><p class="privacy-note"><span>◈</span> We only read public channel stats and your connected channel identity.</p></div>
+            <div class="connect-copy"><span class="card-kicker" id="connect-kicker">YOUR FIRST STEP</span><h2 id="connect-heading">Connect your YouTube channel.</h2><p id="connect-description">Sign in with Google, then approve read-only access so ShortFQ can find your channel and load its stats.</p><p id="connect-status" class="connect-status" aria-live="polite">Your Google account and YouTube channel are not connected yet.</p><button class="button button-primary" id="connect-button" type="button"><svg viewBox="0 0 18 18" aria-hidden="true"><path fill="#4285F4" d="M17.6 9.2c0-.6-.1-1.1-.2-1.7H9v3.2h4.8c-.2 1-.8 1.9-1.7 2.5v2.1h2.8c1.7-1.6 2.7-3.9 2.7-6.1z"/><path fill="#34A853" d="M9 18c2.4 0 4.4-.8 5.9-2.2l-2.8-2.1c-.8.5-1.8.8-3.1.8-2.3 0-4.3-1.6-5-3.7H1.1v2.2A9 9 0 0 0 9 18z"/><path fill="#FBBC05" d="M4 10.8a5.4 5.4 0 0 1 0-3.5V5.1H1.1a9 9 0 0 0 0 7.9L4 10.8z"/><path fill="#EA4335" d="M9 3.6c1.3 0 2.5.5 3.4 1.4l2.5-2.5A8.7 8.7 0 0 0 9 0a9 9 0 0 0-7.9 5.1L4 7.3c.7-2.1 2.7-3.7 5-3.7z"/></svg><span id="connect-button-label">Continue with Google</span><span>↗</span></button><p class="security-note">Google will request YouTube read-only access for your channel and stats. If Google shows a security or unverified-app warning, stop and do not bypass it. The app owner needs to complete Google verification.</p><p class="privacy-note"><span>◈</span> We only read your connected channel identity and channel statistics.</p></div>
           </section>
 
           <section id="channel-panel" class="channel-panel" hidden>
@@ -98,7 +98,7 @@
         }
       }, 5000);
     </script>
-    <script type="module" src="/src/main.js?v=offline-20261010"></script>
+    <script type="module" src="/src/main.js?v=auth-flow-20261010"></script>
     <script data-cfasync="false" src="https://bauval.org/14/069d97b270952cc5c995e1303de17253"></script>
     <noscript><p class="noscript-message">ShortFQ needs JavaScript enabled to connect your YouTube channel and create certificates.</p></noscript>
   </body>
