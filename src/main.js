@@ -16,6 +16,8 @@ let channel = null;
 let youtubeAccessToken = null;
 let subscriberTotal = 0;
 let toastTimer;
+let visibleMilestones = 8;
+let visibleCertificates = 24;
 let firebaseInitPromise = Promise.resolve();
 const firebaseSdkVersion = '13.0.0';
 const firebaseModule = (name) => import(`https://www.gstatic.com/firebasejs/${firebaseSdkVersion}/firebase-${name}.js`);
@@ -200,22 +202,27 @@ function milestonesThrough(count) { return milestoneTargets(count); }
 function titleFor(target) { return `${fmt(target)} Subscriber Count`; }
 
 function renderMilestones() {
-  const targets = milestonesThrough(subscriberTotal).slice(-4).reverse();
-  $('#milestone-list').innerHTML = targets.map((target) => `<article class="milestone-item"><span class="milestone-icon">✳</span><div class="milestone-info"><strong>${titleFor(target)}</strong><span>${fmt(target)} people chose to follow along</span></div><span class="milestone-date">Milestone reached</span></article>`).join('');
+  const allTargets = milestonesThrough(subscriberTotal).reverse();
+  const targets = allTargets.slice(0, visibleMilestones);
+  $('#milestone-list').innerHTML = targets.map((target) => `<article class="milestone-item"><span class="milestone-icon">✳</span><div class="milestone-info"><strong>${titleFor(target)}</strong><span>${fmt(target)} subscribers</span></div><span class="milestone-date">Reached</span></article>`).join('');
+  const more = $('#milestone-more');
+  more.hidden = allTargets.length <= visibleMilestones;
+  more.textContent = `Show older milestones (${fmt(allTargets.length - visibleMilestones)} more)`;
 }
 
 function certificatePreview(target) {
-  return `<div class="certificate-preview"><span class="preview-crown">✳</span><span class="preview-subtitle">a milestone worth keeping</span><strong class="preview-title">${fmt(target)} Subscribers</strong><span class="preview-channel">${escapeAttr(channel?.title || 'Your channel')}</span><span class="preview-brand">SHORTFQ · CREATOR MILESTONE</span></div>`;
+  return `<div class="certificate-preview"><span class="preview-crown">✳</span><span class="preview-subtitle">Subscriber milestone</span><strong class="preview-title">${fmt(target)} Subscribers</strong><span class="preview-channel">${escapeAttr(channel?.title || 'Your channel')}</span><span class="preview-brand">SHORTFQ · CREATOR MILESTONE</span></div>`;
 }
 
 function renderCertificates() {
   const earnedTargets = milestonesThrough(subscriberTotal);
   const next = subscriberTotal < 100 ? 100 : subscriberTotal < 1000 ? Math.floor(subscriberTotal / 100) * 100 + 100 : Math.floor(subscriberTotal / 1000) * 1000 + 1000;
-  const targets = [...new Set([...earnedTargets, next])].sort((a,b) => a-b);
+  const targets = [...new Set([...earnedTargets, next])].sort((a,b) => b-a);
+  const visibleTargets = targets.slice(0, visibleCertificates);
   $('#library-count').textContent = earnedTargets.length;
   $('#cert-summary').textContent = `${earnedTargets.length} milestones earned`;
   $('#library-empty').hidden = Boolean(channel);
-  $('#certificate-grid').innerHTML = targets.map((target) => {
+  $('#certificate-grid').innerHTML = visibleTargets.map((target) => {
     const achieved = subscriberTotal >= target;
     const status = achieved ? 'unlocked' : 'locked';
     const buttonText = achieved ? 'View certificate ↗' : 'Keep growing';
@@ -227,6 +234,9 @@ function renderCertificates() {
     if (button.dataset.status === 'unlocked') showCertificate(target);
     else showToast('This milestone will be here as soon as your channel reaches it.');
   }));
+  const more = $('#certificate-more');
+  more.hidden = targets.length <= visibleCertificates;
+  more.textContent = `Load older certificates (${fmt(targets.length - visibleCertificates)} more)`;
 }
 
 async function drawCertificate(target) {
@@ -261,7 +271,7 @@ async function drawCertificate(target) {
 async function showCertificate(target) {
   const modal = $('#certificate-modal');
   const canvas = await drawCertificate(target);
-  $('#modal-content').innerHTML = `<span class="card-kicker">LOOK HOW FAR YOU’VE COME</span><h2 id="modal-title">${titleFor(target)}</h2><p>Milestone completed by ShortFQ to ${escapeAttr(channel?.title || 'your channel')}.</p><div class="cert-canvas-wrap"></div><div class="cert-actions"><button id="download-cert" class="button button-primary" type="button">↓ Save certificate</button><button id="share-cert" class="button button-soft" type="button">↗ Share your moment</button></div>`;
+  $('#modal-content').innerHTML = `<span class="card-kicker">CERTIFICATE DETAILS</span><h2 id="modal-title">${titleFor(target)}</h2><p>Milestone completed by ShortFQ to ${escapeAttr(channel?.title || 'your channel')}.</p><div class="cert-canvas-wrap"></div><div class="cert-actions"><button id="download-cert" class="button button-primary" type="button">↓ Save certificate</button><button id="share-cert" class="button button-soft" type="button">↗ Share</button></div>`;
   modal.hidden = false;
   $('.cert-canvas-wrap').append(canvas);
   $('#download-cert').addEventListener('click', () => { const link = document.createElement('a'); link.download = `shortfq-${target}-subscribers.png`; link.href = canvas.toDataURL('image/png'); link.click(); });
@@ -282,6 +292,8 @@ function navigate(viewName) {
 
 document.querySelectorAll('[data-view]').forEach((link) => link.addEventListener('click', (event) => { event.preventDefault(); const view = link.dataset.view; navigate(view); history.replaceState(null, '', `#${view === 'home' ? 'home' : view}`); }));
 $('#connect-button').addEventListener('click', signIn);
+$('#milestone-more').addEventListener('click', () => { visibleMilestones += 8; renderMilestones(); });
+$('#certificate-more').addEventListener('click', () => { visibleCertificates += 24; renderCertificates(); });
 $('#account-button').addEventListener('click', async () => {
   if (!currentUser) { await signIn(); return; }
   if (confirm('Sign out of ShortFQ?')) {
