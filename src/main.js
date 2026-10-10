@@ -75,7 +75,7 @@ function showToast(message) {
   toast.textContent = message;
   toast.classList.add('show');
   clearTimeout(toastTimer);
-  toastTimer = setTimeout(() => toast.classList.remove('show'), 3200);
+  toastTimer = setTimeout(() => toast.classList.remove('show'), 6500);
 }
 
 function setConnectBusy(busy, label = '') {
@@ -95,6 +95,12 @@ function userFacingError(error) {
   if (code === 'auth/popup-blocked') return 'Your browser blocked the Google sign-in window. Allow popups for this site and try again.';
   if (code === 'auth/popup-closed-by-user') return '';
   if (code === 'functions/not-found' || /getMyChannelStats.*not found/i.test(message)) return 'The YouTube lookup function is not deployed yet. Deploy Firebase Functions for project shortfq-by-hazik.';
+  if (code === 'functions/internal' || code === 'internal' || /^INTERNAL$/i.test(message.trim())) {
+    const diagnostic = message.match(/Diagnostic ID:\s*([a-f0-9-]+)/i)?.[1];
+    return diagnostic
+      ? `Firebase’s YouTube function crashed (ID ${diagnostic}). Check the getMyChannelStats logs in Firebase, then redeploy the function.`
+      : 'Firebase returned an internal error. The function may be missing, in the wrong region, or crashing. Deploy getMyChannelStats to us-central1 and check its Firebase logs.';
+  }
   if (code === 'functions/unauthenticated') return 'Google sign-in expired. Connect again to continue.';
   if (code === 'functions/unavailable') return 'YouTube or the Firebase backend is temporarily unavailable. Try again shortly.';
   if (code === 'functions/failed-precondition' || code === 'functions/permission-denied') return message;
@@ -231,9 +237,12 @@ async function signIn() {
       : `Connected to ${channel.title}, but Firebase could not save the member profile. Check Firestore setup and rules.`);
   } catch (error) {
     const message = userFacingError(error);
-    if (message) showToast(message);
     setConnectedPanels(Boolean(readCachedProfile(currentUser?.uid)?.channelId));
     setConnectBusy(false);
+    if (message) {
+      $('#connect-status').textContent = message;
+      showToast(message);
+    }
   }
 }
 
@@ -251,7 +260,10 @@ function mapChannel(item) {
 
 async function getMyChannelStats(accessToken) {
   const { httpsCallable } = await firebaseModule('functions');
-  const result = await httpsCallable(functionsClient, 'getMyChannelStats')({ accessToken });
+  const result = await httpsCallable(functionsClient, 'getMyChannelStats', { timeout: 25000 })({ accessToken });
+  if (!result?.data || !Object.prototype.hasOwnProperty.call(result.data, 'channel')) {
+    throw new Error('Firebase returned an invalid response from getMyChannelStats. Confirm the function is deployed to us-central1.');
+  }
   return result.data.channel;
 }
 
