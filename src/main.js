@@ -21,6 +21,53 @@ let visibleCertificates = 24;
 let firebaseInitPromise = Promise.resolve();
 const firebaseSdkVersion = '13.0.0';
 const firebaseModule = (name) => import(`https://www.gstatic.com/firebasejs/${firebaseSdkVersion}/firebase-${name}.js`);
+const profileCacheKey = 'shortfq-profile-snapshot';
+
+function readCachedProfile(uid = null) {
+  try {
+    const snapshot = JSON.parse(localStorage.getItem(profileCacheKey) || 'null');
+    return uid && snapshot?.uid && snapshot.uid !== uid ? null : snapshot;
+  } catch { return null; }
+}
+
+function cacheProfile(data) {
+  try { localStorage.setItem(profileCacheKey, JSON.stringify({ ...readCachedProfile(data.uid), ...data, cachedAt: Date.now() })); } catch { /* Private browsing can disable local storage. */ }
+}
+
+function setConnectionState() {
+  const online = navigator.onLine;
+  $('#connection-state').classList.toggle('offline', !online);
+  $('#connection-state span').textContent = online ? 'Online' : 'Offline · saved copy';
+  $('#profile-cache-state').textContent = online ? 'Saved on this device' : 'Offline copy';
+}
+
+function paintCachedProfile(stored, offline = !navigator.onLine) {
+  if (!stored) return;
+  $('#profile-name').textContent = stored.displayName || 'ShortFQ member';
+  $('#profile-email').textContent = stored.email || 'Google account';
+  $('#profile-avatar').src = stored.photoURL || '/avatar-placeholder.svg';
+  $('#profile-channel').textContent = stored.channelTitle || 'Not connected';
+  $('#profile-channel-id').textContent = stored.channelId || 'Connect your channel to get started.';
+  $('#profile-subscribers').textContent = stored.subscriberCount == null ? '—' : fmt(stored.subscriberCount);
+  $('#profile-views').textContent = stored.viewCount == null ? '—' : fmt(stored.viewCount);
+  $('#profile-cache-state').textContent = offline ? 'Offline copy' : 'Saved on this device';
+  if (!stored.channelId) return;
+  channel = { id: stored.channelId, title: stored.channelTitle || 'Your channel', thumbnail: stored.channelPhoto || '/avatar-placeholder.svg' };
+  subscriberTotal = Number(stored.subscriberCount || 0);
+  $('#channel-avatar').src = channel.thumbnail;
+  $('#channel-name').textContent = channel.title;
+  $('#channel-handle').textContent = `YouTube channel · ${channel.id}`;
+  $('#subscriber-count').textContent = fmt(subscriberTotal);
+  $('#view-count').textContent = fmt(stored.viewCount || 0);
+  $('#reached-count').textContent = fmt(milestonesThrough(subscriberTotal).length);
+  $('#visual-avatar').src = channel.thumbnail;
+  $('#visual-channel-name').textContent = channel.title;
+  $('#visual-subscribers').textContent = fmt(subscriberTotal);
+  $('#visual-views').textContent = fmt(stored.viewCount || 0);
+  setConnectedPanels(true);
+  renderMilestones();
+  renderCertificates();
+}
 
 function showToast(message) {
   const toast = $('#toast');
@@ -42,6 +89,7 @@ function firebaseReady() {
 
 async function initFirebase() {
   if (!firebaseReady()) return;
+  if (!navigator.onLine) return;
   const [appSdk, authSdk, firestoreSdk, functionsSdk] = await Promise.all([
     firebaseModule('app'),
     firebaseModule('auth'),
@@ -65,19 +113,10 @@ async function initFirebase() {
       $('.account-avatar').innerHTML = user.photoURL ? `<img src="${escapeAttr(user.photoURL)}" alt="" />` : (user.displayName || 'M')[0].toUpperCase();
       if (user.photoURL) $('.account-avatar').classList.add('has-photo');
       const stored = await loadMember(user.uid);
-      if (stored?.channelId) {
-        channel = { id: stored.channelId, title: stored.channelTitle, thumbnail: stored.channelPhoto };
-        subscriberTotal = Number(stored.subscriberCount || 0);
-        $('#channel-avatar').src = channel.thumbnail || '/avatar-placeholder.svg';
-        $('#channel-name').textContent = channel.title || 'Your channel';
-        $('#channel-handle').textContent = `YouTube channel · ${channel.id}`;
-        $('#subscriber-count').textContent = fmt(subscriberTotal);
-        $('#view-count').textContent = fmt(stored.viewCount || 0);
-        $('#reached-count').textContent = fmt(milestonesThrough(subscriberTotal).length);
-        renderMilestones();
-        renderCertificates();
-      }
-      setConnectedPanels(Boolean(channel));
+      const member = { uid: user.uid, email: user.email || '', displayName: user.displayName || '', photoURL: user.photoURL || '', ...stored };
+      cacheProfile(member);
+      paintCachedProfile(member, false);
+      setConnectedPanels(Boolean(member.channelId));
     } else {
       $('#account-label').textContent = 'Your account';
       $('.account-avatar').textContent = '?';
@@ -90,27 +129,45 @@ async function initFirebase() {
 function escapeAttr(value) { return String(value).replace(/[&"<>']/g, (char) => ({ '&':'&amp;', '"':'&quot;', '<':'&lt;', '>':'&gt;', "'":'&#39;' }[char])); }
 
 async function saveMember(user, data = {}) {
-  const { doc, getDoc, setDoc, serverTimestamp } = await firebaseModule('firestore');
-  const memberRef = doc(db, 'members', user.uid);
-  const exists = (await getDoc(memberRef)).exists();
-  await setDoc(memberRef, {
-    uid: user.uid,
-    email: user.email || '',
-    displayName: user.displayName || '',
-    photoURL: user.photoURL || '',
-    ...data,
-    updatedAt: serverTimestamp(),
-    ...(exists ? {} : { createdAt: serverTimestamp() })
-  }, { merge: true });
+  const cached = { ...readCachedProfile(user.uid), uid: user.uid, email: user.email || '', displayName: user.displayName || '', photoURL: user.photoURL || '', ...data };
+  cacheProfile(cached);
+  paintCachedProfile(cached, !navigator.onLine);
+  if (!navigator.onLine || !db) return;
+  try {
+    const { doc, getDoc, setDoc, serverTimestamp } = await firebaseModule('firestore');
+    const memberRef = doc(db, 'members', user.uid);
+    const exists = (await getDoc(memberRef)).exists();
+    await setDoc(memberRef, {
+      uid: user.uid,
+      email: user.email || '',
+      displayName: user.displayName || '',
+      photoURL: user.photoURL || '',
+      ...data,
+      updatedAt: serverTimestamp(),
+      ...(exists ? {} : { createdAt: serverTimestamp() })
+    }, { merge: true });
+  } catch (error) {
+    console.info('Could not sync the local profile to Firestore:', error);
+    showToast('Your profile is saved on this device. Firestore sync will retry when online.');
+  }
 }
 
 async function loadMember(uid) {
+  if (!navigator.onLine || !db) return readCachedProfile(uid);
+  try {
   const { doc, getDoc } = await firebaseModule('firestore');
   const snapshot = await getDoc(doc(db, 'members', uid));
-  return snapshot.exists() ? snapshot.data() : null;
+  const data = snapshot.exists() ? snapshot.data() : null;
+  if (data) cacheProfile(data);
+  return data || readCachedProfile(uid);
+  } catch (error) {
+    console.info('Using the saved profile because Firestore is unavailable:', error);
+    return readCachedProfile(uid);
+  }
 }
 
 async function signIn() {
+  if (!navigator.onLine) { showToast('You’re offline. Reconnect to sign in with Google.'); return; }
   if (!firebaseReady()) {
     showToast('Firebase isn’t connected yet. Add the project settings in src/config.js first.');
     return;
@@ -156,7 +213,8 @@ async function getMyChannelStats(accessToken) {
 
 async function refreshStats(showMessage = true) {
   if (!channel) return;
-  if (!auth?.currentUser) return;
+  if (!navigator.onLine) { if (showMessage) showToast('You’re offline. Showing your saved channel snapshot.'); return; }
+  if (!auth?.currentUser) { if (showMessage) await signIn(); return; }
   if (!youtubeAccessToken) {
     if (showMessage) await signIn();
     return;
@@ -177,11 +235,16 @@ async function paintChannel(item) {
   $('#channel-handle').textContent = `YouTube channel · ${channel.id}`;
   $('#subscriber-count').textContent = fmt(subscriberTotal);
   $('#view-count').textContent = fmt(item.statistics?.viewCount);
+  $('#visual-avatar').src = channel.thumbnail;
+  $('#visual-channel-name').textContent = channel.title;
+  $('#visual-subscribers').textContent = fmt(subscriberTotal);
+  $('#visual-views').textContent = fmt(item.statistics?.viewCount);
   const earned = milestonesThrough(subscriberTotal).length;
   $('#reached-count').textContent = fmt(earned);
   renderMilestones();
   renderCertificates();
   if (currentUser) await saveMember(currentUser, { channelId: channel.id, channelTitle: channel.title, channelPhoto: channel.thumbnail, subscriberCount: subscriberTotal, viewCount: Number(item.statistics?.viewCount || 0) });
+  paintCachedProfile({ ...readCachedProfile(), ...(currentUser ? { email: currentUser.email, displayName: currentUser.displayName, photoURL: currentUser.photoURL } : {}), channelId: channel.id, channelTitle: channel.title, channelPhoto: channel.thumbnail, subscriberCount: subscriberTotal, viewCount: Number(item.statistics?.viewCount || 0) }, false);
 }
 
 function setConnectedPanels(connected) {
@@ -283,7 +346,7 @@ async function showCertificate(target) {
 }
 
 function navigate(viewName) {
-  const names = { home: 'Overview', certificates: 'Certificate library', about: 'How it works' };
+  const names = { home: 'Overview', profile: 'Profile', certificates: 'Certificate library', credits: 'Credits' };
   document.querySelectorAll('.view').forEach((view) => { view.hidden = view.id !== `view-${viewName}`; view.classList.toggle('active-view', view.id === `view-${viewName}`); });
   document.querySelectorAll('[data-view]').forEach((link) => link.classList.toggle('active', link.dataset.view === viewName));
   $('#breadcrumb-page').textContent = names[viewName] || names.home;
@@ -291,14 +354,18 @@ function navigate(viewName) {
 }
 
 document.querySelectorAll('[data-view]').forEach((link) => link.addEventListener('click', (event) => { event.preventDefault(); const view = link.dataset.view; navigate(view); history.replaceState(null, '', `#${view === 'home' ? 'home' : view}`); }));
+window.addEventListener('online', () => { setConnectionState(); if (firebaseReady() && !auth) { firebaseInitPromise = initFirebase(); firebaseInitPromise.catch((error) => console.info('Firebase is still unavailable:', error)); } });
+window.addEventListener('offline', setConnectionState);
 $('#connect-button').addEventListener('click', signIn);
 $('#milestone-more').addEventListener('click', () => { visibleMilestones += 8; renderMilestones(); });
 $('#certificate-more').addEventListener('click', () => { visibleCertificates += 24; renderCertificates(); });
 $('#account-button').addEventListener('click', async () => {
   if (!currentUser) { await signIn(); return; }
   if (confirm('Sign out of ShortFQ?')) {
-    const { signOut } = await import('https://www.gstatic.com/firebasejs/12.19.0/firebase-auth.js');
-    await signOut(auth); channel = null; subscriberTotal = 0; navigate('home'); showToast('You’re signed out. See you again soon.');
+    const { signOut } = await firebaseModule('auth');
+    await signOut(auth);
+    localStorage.removeItem(profileCacheKey);
+    channel = null; subscriberTotal = 0; navigate('home'); showToast('You’re signed out. See you again soon.');
   }
 });
 $('#refresh-button').addEventListener('click', () => refreshStats(true));
@@ -307,13 +374,18 @@ $('#certificate-modal').addEventListener('click', (event) => { if (event.target.
 window.addEventListener('keydown', (event) => { if (event.key === 'Escape') $('#certificate-modal').hidden = true; });
 
 const bootStartedAt = performance.now();
+setConnectionState();
+paintCachedProfile(readCachedProfile());
+navigator.serviceWorker?.register('/sw.js').catch((error) => console.info('Offline shell registration unavailable:', error));
 firebaseInitPromise = initFirebase();
 firebaseInitPromise.catch((error) => {
   console.error('Firebase initialization failed:', error);
   showToast('Firebase is unavailable right now. The page is ready; try connecting again in a moment.');
 });
 if (location.hash === '#certificates') navigate('certificates');
-else if (location.hash === '#about') navigate('about');
+else if (location.hash === '#profile') navigate('profile');
+else if (location.hash === '#credits') navigate('credits');
 const bootRemaining = 700 - (performance.now() - bootStartedAt);
 if (bootRemaining > 0) await new Promise((resolve) => setTimeout(resolve, bootRemaining));
 showApp();
+
