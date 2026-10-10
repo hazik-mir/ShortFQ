@@ -8,9 +8,9 @@ ShortFQ is a monochrome YouTube creator dashboard with a saved offline profile, 
 2. Create a Cloud Firestore database. Deploy the included owner-only rules with `firebase deploy --only firestore:rules`.
 3. The Firebase web app settings are in `src/config.js`; the Firebase web API key is a public client identifier. Restrict it in Google Cloud/Firebase and keep the YouTube Data API key in Firebase Secret Manager.
 4. Set up the Google OAuth consent screen for YouTube read-only access. The app asks for `youtube.readonly` to identify the signed-in user's own channel. A Firebase callable function retrieves channel statistics.
-5. Add your Firebase project ID with `firebase use --add`. Set the API key in Firebase Secret Manager with `firebase functions:secrets:set YOUTUBE_API_KEY`, then deploy with `firebase deploy --only functions,hosting,firestore:rules`.
+5. Add your Firebase project ID with `firebase use --add`. Set the API key in Firebase Secret Manager with `firebase functions:secrets:set YOUTUBE_API_KEY`, then deploy with `firebase deploy --only functions,firestore:rules`. GitHub Pages serves the web app; Firebase Hosting is optional.
 
-The YouTube key is consumed only by `functions/getMyChannelStats`, which requires Firebase Authentication and reads the key through Firebase Secret Manager. The Google access token is sent to the callable function over HTTPS and is not stored. Cloud Functions deployment requires the Firebase project to use the Blaze plan; review budget alerts before deploying.
+The YouTube key is consumed only by `functions/getMyChannelStats`, which requires Firebase Authentication and reads the key through Firebase Secret Manager. The Google access token is sent to the callable function over HTTPS and is not stored. Cloud Functions deployment requires the Firebase project to use the Blaze plan; review budget alerts before deploying. ShortFQ reports actionable setup messages when the function is missing, the key is invalid, the API is disabled, quota is exhausted, or YouTube permission was not granted.
 
 Google sign-in uses the configured Firebase project. Do not place the YouTube API key in client-side files or commit it; enter it directly when the Firebase CLI prompts for the secret.
 
