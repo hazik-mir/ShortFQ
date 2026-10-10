@@ -66,6 +66,20 @@ body { background: #08090a; color: #e6e7e4; }
 }
 
 /* Simpler, larger monochrome layout with an offline profile and channel card. */
+@font-face {
+  font-family: 'Clash Regular';
+  src: url('/Clash_regular.ttf') format('opentype');
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Clash Bold';
+  src: url('/Clash_bold.ttf') format('opentype');
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
 :root {
   --bg: #050505;
   --panel: #101010;
