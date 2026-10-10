@@ -3,7 +3,8 @@
   "short_name": "ShortFQ",
   "start_url": "/",
   "display": "standalone",
-  "background_color": "#071b15",
-  "theme_color": "#071b15",
+  "background_color": "#050505",
+  "theme_color": "#050505",
   "icons": [{ "src": "/favicon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any maskable" }]
 }
+
