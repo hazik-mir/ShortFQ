@@ -1,0 +1,23 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    match /members/{memberId} {
+      allow read: if request.auth != null && request.auth.uid == memberId;
+      allow create: if request.auth != null
+        && request.auth.uid == memberId
+        && request.resource.data.uid == request.auth.uid
+        && request.resource.data.keys().hasOnly([
+          'uid', 'email', 'displayName', 'photoURL', 'channelId', 'channelTitle',
+          'channelPhoto', 'subscriberCount', 'viewCount', 'createdAt', 'updatedAt'
+        ]);
+      allow update: if request.auth != null
+        && request.auth.uid == memberId
+        && request.resource.data.uid == resource.data.uid
+        && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+          'email', 'displayName', 'photoURL', 'channelId', 'channelTitle',
+          'channelPhoto', 'subscriberCount', 'viewCount', 'updatedAt'
+        ]);
+      allow delete: if request.auth != null && request.auth.uid == memberId;
+    }
+  }
+}

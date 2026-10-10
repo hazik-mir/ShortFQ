@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://shortfq.hazik.in/sitemap.xml
