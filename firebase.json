@@ -1,10 +1,8 @@
 {
-  "functions": { "source": "functions" },
   "hosting": {
     "public": ".",
     "ignore": [
       "firebase.json",
-      "firestore.rules",
       ".firebaserc",
       ".git/**",
       ".github/**",
@@ -19,6 +17,6 @@
       }
     ],
     "rewrites": [{ "source": "**", "destination": "/index.html" }]
-  },
-  "firestore": { "rules": "firestore.rules" }
+  }
 }
+
