@@ -49,7 +49,7 @@ function paintCachedProfile(stored, offline = !navigator.onLine) {
   $('#profile-avatar').src = stored.photoURL || '/avatar-placeholder.svg';
   $('#profile-channel').textContent = stored.channelTitle || 'Not connected';
   $('#profile-channel-id').textContent = stored.channelId || 'Connect your channel to get started.';
-  $('#profile-subscribers').textContent = stored.subscriberCount == null ? '—' : fmt(stored.subscriberCount);
+  $('#profile-subscribers').textContent = stored.hiddenSubscriberCount ? 'Hidden' : (stored.subscriberCount == null ? '—' : fmt(stored.subscriberCount));
   $('#profile-views').textContent = stored.viewCount == null ? '—' : fmt(stored.viewCount);
   $('#profile-cache-state').textContent = offline ? 'Offline copy' : 'Saved on this device';
   if (!stored.channelId) return;
@@ -58,12 +58,12 @@ function paintCachedProfile(stored, offline = !navigator.onLine) {
   $('#channel-avatar').src = channel.thumbnail;
   $('#channel-name').textContent = channel.title;
   $('#channel-handle').textContent = `YouTube channel · ${channel.id}`;
-  $('#subscriber-count').textContent = fmt(subscriberTotal);
+  $('#subscriber-count').textContent = stored.hiddenSubscriberCount ? 'Hidden' : fmt(subscriberTotal);
   $('#view-count').textContent = fmt(stored.viewCount || 0);
   $('#reached-count').textContent = fmt(milestonesThrough(subscriberTotal).length);
   $('#visual-avatar').src = channel.thumbnail;
   $('#visual-channel-name').textContent = channel.title;
-  $('#visual-subscribers').textContent = fmt(subscriberTotal);
+  $('#visual-subscribers').textContent = stored.hiddenSubscriberCount ? 'Hidden' : fmt(subscriberTotal);
   $('#visual-views').textContent = fmt(stored.viewCount || 0);
   setConnectedPanels(true);
   renderMilestones();
@@ -76,6 +76,30 @@ function showToast(message) {
   toast.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => toast.classList.remove('show'), 3200);
+}
+
+function setConnectBusy(busy, label = '') {
+  const button = $('#connect-button');
+  button.disabled = busy;
+  button.classList.toggle('is-loading', busy);
+  $('#connect-button-label').textContent = busy ? label : (currentUser ? 'Connect YouTube' : 'Continue with Google');
+  $('#connect-status').textContent = busy ? label : (currentUser
+    ? `Signed in as ${currentUser.email || currentUser.displayName || 'your Google account'} · YouTube access is still needed.`
+    : 'Your Google account and YouTube channel are not connected yet.');
+}
+
+function userFacingError(error) {
+  const code = String(error?.code || '').replace(/^firebase\//, '');
+  const message = String(error?.message || 'Please try again.');
+  if (code === 'auth/unauthorized-domain') return 'This website domain is not authorized in Firebase Authentication. Add shortfq.hazik.in to the Firebase project’s Authorized domains.';
+  if (code === 'auth/popup-blocked') return 'Your browser blocked the Google sign-in window. Allow popups for this site and try again.';
+  if (code === 'auth/popup-closed-by-user') return '';
+  if (code === 'functions/not-found' || /getMyChannelStats.*not found/i.test(message)) return 'The YouTube lookup function is not deployed yet. Deploy Firebase Functions for project shortfq-by-hazik.';
+  if (code === 'functions/unauthenticated') return 'Google sign-in expired. Connect again to continue.';
+  if (code === 'functions/unavailable') return 'YouTube or the Firebase backend is temporarily unavailable. Try again shortly.';
+  if (code === 'functions/failed-precondition' || code === 'functions/permission-denied') return message;
+  if (/403|accessNotConfigured|YouTube Data API/i.test(message)) return message;
+  return message;
 }
 
 function showApp() {
@@ -108,21 +132,27 @@ async function initFirebase() {
   authSdk.onAuthStateChanged(auth, async (user) => {
     currentUser = user;
     if (user) {
-      $('#connect-panel').hidden = true;
-      $('#channel-panel').hidden = false;
       $('#account-label').textContent = user.displayName?.split(' ')[0] || 'Member';
       $('.account-avatar').innerHTML = user.photoURL ? `<img src="${escapeAttr(user.photoURL)}" alt="" />` : (user.displayName || 'M')[0].toUpperCase();
-      if (user.photoURL) $('.account-avatar').classList.add('has-photo');
-      const stored = await loadMember(user.uid);
-      const member = { uid: user.uid, email: user.email || '', displayName: user.displayName || '', photoURL: user.photoURL || '', ...stored };
+      $('.account-avatar').classList.toggle('has-photo', Boolean(user.photoURL));
+      const cached = readCachedProfile(user.uid);
+      const member = { ...(cached || {}), uid: user.uid, email: user.email || '', displayName: user.displayName || '', photoURL: user.photoURL || '' };
       cacheProfile(member);
-      paintCachedProfile(member, false);
+      paintCachedProfile(member, !navigator.onLine);
       setConnectedPanels(Boolean(member.channelId));
+      loadMember(user.uid).then((stored) => {
+        if (!stored) return;
+        const freshMember = { ...member, ...stored, ...(readCachedProfile(user.uid) || {}), uid: user.uid, email: user.email || '', displayName: user.displayName || '', photoURL: user.photoURL || '' };
+        cacheProfile(freshMember);
+        paintCachedProfile(freshMember, !navigator.onLine);
+        setConnectedPanels(Boolean(freshMember.channelId));
+      }).catch((error) => console.info('Profile refresh is unavailable:', error));
     } else {
       $('#account-label').textContent = 'Your account';
       $('.account-avatar').textContent = '?';
       $('.account-avatar').classList.remove('has-photo');
       setConnectedPanels(false);
+      setConnectBusy(false);
     }
   });
 }
@@ -133,23 +163,22 @@ async function saveMember(user, data = {}) {
   const cached = { ...readCachedProfile(user.uid), uid: user.uid, email: user.email || '', displayName: user.displayName || '', photoURL: user.photoURL || '', ...data };
   cacheProfile(cached);
   paintCachedProfile(cached, !navigator.onLine);
-  if (!navigator.onLine || !db) return;
+  if (!navigator.onLine || !db) return false;
   try {
-    const { doc, getDoc, setDoc, serverTimestamp } = await firebaseModule('firestore');
+    const { doc, setDoc, serverTimestamp } = await firebaseModule('firestore');
     const memberRef = doc(db, 'members', user.uid);
-    const exists = (await getDoc(memberRef)).exists();
     await setDoc(memberRef, {
       uid: user.uid,
       email: user.email || '',
       displayName: user.displayName || '',
       photoURL: user.photoURL || '',
       ...data,
-      updatedAt: serverTimestamp(),
-      ...(exists ? {} : { createdAt: serverTimestamp() })
+      updatedAt: serverTimestamp()
     }, { merge: true });
+    return true;
   } catch (error) {
     console.info('Could not sync the local profile to Firestore:', error);
-    showToast('Your profile is saved on this device. Firestore sync will retry when online.');
+    return false;
   }
 }
 
@@ -157,7 +186,10 @@ async function loadMember(uid) {
   if (!navigator.onLine || !db) return readCachedProfile(uid);
   try {
   const { doc, getDoc } = await firebaseModule('firestore');
-  const snapshot = await getDoc(doc(db, 'members', uid));
+  const snapshot = await Promise.race([
+    getDoc(doc(db, 'members', uid)),
+    new Promise((_, reject) => setTimeout(() => reject(new Error('Firestore profile read timed out.')), 6500))
+  ]);
   const data = snapshot.exists() ? snapshot.data() : null;
   if (data) cacheProfile(data);
   return data || readCachedProfile(uid);
@@ -173,33 +205,44 @@ async function signIn() {
     showToast('Firebase isn’t connected yet. Add the project settings in src/config.js first.');
     return;
   }
+  setConnectBusy(true, 'Opening Google sign-in…');
   try {
-    await firebaseInitPromise;
+    if (!auth) {
+      firebaseInitPromise = initFirebase();
+      try { await firebaseInitPromise; }
+      catch (error) { firebaseInitStarted = false; throw error; }
+    }
+    if (!auth) throw new Error('Firebase Authentication did not initialize. Check the network and Firebase project settings, then retry.');
     const { GoogleAuthProvider, signInWithPopup } = await firebaseModule('auth');
     const provider = new GoogleAuthProvider();
     provider.addScope('https://www.googleapis.com/auth/youtube.readonly');
-    provider.setCustomParameters({ prompt: 'select_account' });
+    provider.setCustomParameters({ prompt: 'consent select_account' });
     const result = await signInWithPopup(auth, provider);
     const token = GoogleAuthProvider.credentialFromResult(result)?.accessToken;
-    await saveMember(result.user);
-    if (!token) throw new Error('Google did not return YouTube permission. Please try connecting again.');
+    currentUser = result.user;
+    if (!token) throw new Error('Google signed you in but did not grant YouTube read-only access. Choose the YouTube permission in Google’s consent screen and try again.');
     youtubeAccessToken = token;
-    await discoverChannel(result.user, token);
+    setConnectBusy(true, 'Finding your YouTube channel…');
+    const item = await discoverChannel(token);
+    const memberSaved = await paintChannel(item);
+    setConnectBusy(false);
+    showToast(memberSaved
+      ? `Connected to ${channel.title}. Stats and member profile saved.`
+      : `Connected to ${channel.title}, but Firebase could not save the member profile. Check Firestore setup and rules.`);
   } catch (error) {
-    if (error.code === 'auth/popup-closed-by-user') return;
-    showToast(error.message || 'We couldn’t connect your Google account.');
+    const message = userFacingError(error);
+    if (message) showToast(message);
+    setConnectedPanels(Boolean(readCachedProfile(currentUser?.uid)?.channelId));
+    setConnectBusy(false);
   }
 }
 
-async function discoverChannel(user, token) {
-  try {
-    const item = await getMyChannelStats(token);
-    if (!item) throw new Error('No YouTube channel is linked to this Google account yet.');
-    channel = mapChannel(item);
-    await saveMember(user, { channelId: channel.id, channelTitle: channel.title, channelPhoto: channel.thumbnail });
-    await paintChannel(item);
-    setConnectedPanels(true);
-  } catch (error) { showToast(error.message || 'Could not read your YouTube channel.'); }
+async function discoverChannel(token) {
+  const item = await getMyChannelStats(token);
+  if (!item) throw new Error('No YouTube channel was found for this Google account. Try the Google account that owns or manages your channel.');
+  channel = mapChannel(item);
+  setConnectedPanels(true);
+  return item;
 }
 
 function mapChannel(item) {
@@ -223,34 +266,42 @@ async function refreshStats(showMessage = true) {
   try {
     const item = await getMyChannelStats(youtubeAccessToken);
     if (!item) throw new Error('No YouTube channel is linked to this Google account.');
-    await paintChannel(item);
-    if (showMessage) showToast('Your channel stats are up to date.');
-  } catch (error) { if (showMessage) showToast(error.message || 'Could not refresh channel stats.'); }
+    const memberSaved = await paintChannel(item);
+    if (showMessage) showToast(memberSaved ? 'Your channel stats and member profile are up to date.' : 'Stats are refreshed locally, but Firebase could not save the member profile. Check Firestore setup and rules.');
+  } catch (error) { if (showMessage) showToast(userFacingError(error) || 'Could not refresh channel stats.'); }
 }
 
 async function paintChannel(item) {
   channel = mapChannel(item);
+  const hiddenSubscribers = Boolean(item.statistics?.hiddenSubscriberCount) || item.statistics?.subscriberCount == null;
   subscriberTotal = Number(item.statistics?.subscriberCount || 0);
   $('#channel-avatar').src = channel.thumbnail;
   $('#channel-name').textContent = channel.title;
   $('#channel-handle').textContent = `YouTube channel · ${channel.id}`;
-  $('#subscriber-count').textContent = fmt(subscriberTotal);
+  $('#subscriber-count').textContent = hiddenSubscribers ? 'Hidden' : fmt(subscriberTotal);
   $('#view-count').textContent = fmt(item.statistics?.viewCount);
   $('#visual-avatar').src = channel.thumbnail;
   $('#visual-channel-name').textContent = channel.title;
-  $('#visual-subscribers').textContent = fmt(subscriberTotal);
+  $('#visual-subscribers').textContent = hiddenSubscribers ? 'Hidden' : fmt(subscriberTotal);
   $('#visual-views').textContent = fmt(item.statistics?.viewCount);
   const earned = milestonesThrough(subscriberTotal).length;
   $('#reached-count').textContent = fmt(earned);
   renderMilestones();
   renderCertificates();
-  if (currentUser) await saveMember(currentUser, { channelId: channel.id, channelTitle: channel.title, channelPhoto: channel.thumbnail, subscriberCount: subscriberTotal, viewCount: Number(item.statistics?.viewCount || 0) });
-  paintCachedProfile({ ...readCachedProfile(), ...(currentUser ? { email: currentUser.email, displayName: currentUser.displayName, photoURL: currentUser.photoURL } : {}), channelId: channel.id, channelTitle: channel.title, channelPhoto: channel.thumbnail, subscriberCount: subscriberTotal, viewCount: Number(item.statistics?.viewCount || 0) }, false);
+  const memberSaved = currentUser ? await saveMember(currentUser, { channelId: channel.id, channelTitle: channel.title, channelPhoto: channel.thumbnail, subscriberCount: hiddenSubscribers ? null : subscriberTotal, hiddenSubscriberCount: hiddenSubscribers, viewCount: Number(item.statistics?.viewCount || 0) }) : false;
+  paintCachedProfile({ ...readCachedProfile(), ...(currentUser ? { email: currentUser.email, displayName: currentUser.displayName, photoURL: currentUser.photoURL } : {}), channelId: channel.id, channelTitle: channel.title, channelPhoto: channel.thumbnail, subscriberCount: hiddenSubscribers ? null : subscriberTotal, hiddenSubscriberCount: hiddenSubscribers, viewCount: Number(item.statistics?.viewCount || 0) }, false);
+  return memberSaved;
 }
 
 function setConnectedPanels(connected) {
   $('#connect-panel').hidden = connected;
   $('#channel-panel').hidden = !connected;
+  $('#connect-kicker').textContent = currentUser ? 'GOOGLE ACCOUNT SIGNED IN' : 'YOUR FIRST STEP';
+  $('#connect-heading').textContent = currentUser ? 'One more step: connect YouTube.' : 'Connect your YouTube channel.';
+  $('#connect-description').textContent = currentUser
+    ? 'Your Google account is signed in. Continue to approve YouTube read-only access so ShortFQ can find your channel and stats.'
+    : 'Sign in with Google, then approve read-only access so ShortFQ can find your channel and load its stats.';
+  if (!$('#connect-button').disabled) setConnectBusy(false);
   $('#milestone-section').hidden = !connected || subscriberTotal < 100;
   $('#empty-milestones').hidden = !connected || subscriberTotal >= 100;
   if (!connected) { $('#milestone-section').hidden = true; $('#empty-milestones').hidden = true; }
